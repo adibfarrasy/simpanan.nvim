@@ -1,0 +1,6 @@
+function! s:Requiresimpanan(host) abort
+    return jobstart(['simpanan'], {'rpc': v:true})
+endfunction
+
+call remote#host#Register('simpanan', 'x', function('s:Requiresimpanan'))
+

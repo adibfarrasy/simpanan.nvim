@@ -1,0 +1,23 @@
+===================================================================================
+                                                                *simpanan.nvim*
+
+This plugin is a datastore client that returns a JSON payload for convenient
+data processing. 
+
+                                                       *simpanan.list_connections()*
+simpanan.list_connections()
+
+    Display a popup for managing connections.    >
+        
+        simpanan.list_connections()
+<
+
+                                                               *simpanan.execute()*
+simpanan.execute()
+
+    Execute the highlighted text in visual mode and execute the query. >
+        
+        simpanan.execute()
+<
+
+vim:tw=78:ts=8:ft=help:norl:

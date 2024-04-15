@@ -47,7 +47,7 @@ The vision for this Neovim plugin is to:
 - List connections
 
 ## WIP
-These planned featueres will be supported in order:
+These planned features will be supported in order:
 1. Manage connections (add/ delete) from the list_connections popup
 2. Support for mongodb query
 3. Support for redis query

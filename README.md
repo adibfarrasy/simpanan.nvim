@@ -2,7 +2,7 @@
 Run any query by adding `{your_connection}>` prefix! 
 On any file, right on your editor!
 
-![Screenshot](assets/simpanan.webm)
+[simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
 
 The vision for this Neovim plugin is to:
 - Create a convenient datastore runner for many popular databases, e.g. 

@@ -23,7 +23,7 @@ The vision for this Neovim plugin is to:
 - lazy.nvim:
 ```lua
   {
-    dir = 'adibfarrasy/simpanan.nvim',
+    'adibfarrasy/simpanan.nvim',
     dependencies = {
       'MunifTanjim/nui.nvim',
     },

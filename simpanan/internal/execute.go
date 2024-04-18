@@ -38,13 +38,12 @@ func executePostgresQuery(q QueryMetadata, previousResults []byte) ([]byte, erro
 	defer db.Close()
 
 	var rows *sql.Rows
-	if len(previousResults) == 0 {
-		rows, err = db.Query(q.ExecLine)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// TODO: handle pipeline and query with the args
+	if len(previousResults) != 0 {
+		pipeData(&q, previousResults)
+	}
+	rows, err = db.Query(q.ExecLine)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", err.Error(), q.ExecLine)
 	}
 
 	defer rows.Close()

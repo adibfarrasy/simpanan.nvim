@@ -24,35 +24,35 @@ func TestParseQuery(t *testing.T) {
 		},
 		{
 			name:           "connection key not found - empty arg",
-			arg:            "|>",
+			arg:            ">",
 			connMap:        map[string]string{"conn1": "postgres://root:root@localhost:port/db_name"},
 			expectedResult: QueryMetadata{},
 			expectedError:  errors.New("Connection key '' not found."),
 		},
 		{
 			name:           "connection key not found - not found in connMap",
-			arg:            "|connX>",
+			arg:            "connX>",
 			connMap:        map[string]string{"conn1": "postgres://root:root@localhost:port/db_name"},
 			expectedResult: QueryMetadata{},
 			expectedError:  errors.New("Connection key 'connX' not found."),
 		},
 		{
 			name:           "no query",
-			arg:            "|conn1>",
+			arg:            "conn1>",
 			connMap:        map[string]string{"conn1": "postgres://root:root@localhost:port/db_name"},
 			expectedResult: QueryMetadata{},
 			expectedError:  errors.New("No query on the right hand side of connection."),
 		},
 		{
 			name:           "whitespace query",
-			arg:            "|conn1>         ",
+			arg:            "conn1>         ",
 			connMap:        map[string]string{"conn1": "postgres://root:root@localhost:port/db_name"},
 			expectedResult: QueryMetadata{},
 			expectedError:  errors.New("No query on the right hand side of connection."),
 		},
 		{
 			name:    "parsed",
-			arg:     "|conn1> select * from table",
+			arg:     "conn1> select * from table",
 			connMap: map[string]string{"conn1": "postgres://root:root@localhost:port/db_name"},
 			expectedResult: QueryMetadata{
 				Conn:     "postgres://root:root@localhost:port/db_name",
@@ -66,7 +66,7 @@ func TestParseQuery(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := parseQuery(test.arg, test.connMap, true)
+			res, err := parseQuery(test.arg, test.connMap)
 			assert.Equal(t, test.expectedResult, res)
 			assert.Equal(t, test.expectedError, err)
 		})
@@ -97,7 +97,7 @@ func TestParseQueries(t *testing.T) {
 		},
 		{
 			name: "parsed multiline queries",
-			args: []string{"conn1> select * from query", "continued", "|conn2> select * from query2", "continued2"},
+			args: []string{"conn1> select * from query", "continued", "conn2> select * from query2", "continued2"},
 			connMap: map[string]string{
 				"conn1": "postgres://root:root@localhost:port/db_name",
 				"conn2": "postgres://root:root@localhost:port/db_name",
@@ -119,7 +119,7 @@ func TestParseQueries(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			name: "parsed single line",
+			name: "bug case: parsed single line",
 			args: []string{" pg0> select name from test_table;"},
 			connMap: map[string]string{
 				"pg0": "postgres://root:root@localhost:port/db_name",
@@ -129,6 +129,29 @@ func TestParseQueries(t *testing.T) {
 					Conn:     "postgres://root:root@localhost:port/db_name",
 					ConnType: Postgres,
 					ExecLine: "select name from test_table;",
+					ExecType: Query,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name: "bug case: should return second result",
+			args: []string{"rew-dev> select * from reward_balances order by created_at desc limit 3",
+				"rew-dev> select * from rewards where id = '{{.[0].reward_id}}';"},
+			connMap: map[string]string{
+				"rew-dev": "postgres://root:root@localhost:port/db_name",
+			},
+			expectedResult: []QueryMetadata{
+				{
+					Conn:     "postgres://root:root@localhost:port/db_name",
+					ConnType: Postgres,
+					ExecLine: "select * from reward_balances order by created_at desc limit 3",
+					ExecType: Query,
+				},
+				{
+					Conn:     "postgres://root:root@localhost:port/db_name",
+					ConnType: Postgres,
+					ExecLine: "select * from rewards where id = '{{.[0].reward_id}}';",
 					ExecType: Query,
 				},
 			},

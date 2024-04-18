@@ -10,7 +10,8 @@ import (
 )
 
 func HandleRunQuery(args []string) (string, error) {
-	args = []string{strings.ReplaceAll(args[0], "::", " ")}
+	// remove the :: prefix and :: separators
+	args = strings.Split(args[0], "::")[1:]
 
 	conns, err := GetConnectionList()
 	if err != nil {
@@ -46,12 +47,8 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 
 	tmpQueryMeta := QueryMetadata{}
 	for i, a := range args {
-		if len(strings.TrimLeft(a, " ")) == 0 {
-			continue
-		}
-
 		if i == 0 {
-			q, err := parseQuery(a, connMap, false)
+			q, err := parseQuery(a, connMap)
 			if err != nil {
 				return nil, err
 			}
@@ -63,12 +60,16 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 			continue
 		}
 
+		if len(strings.TrimLeft(a, " ")) == 0 {
+			continue
+		}
+
 		if !hasConnArg(a) {
 			tmpQueryMeta.ExecLine += fmt.Sprintf(" %s", a)
 		} else {
 			queries = append(queries, tmpQueryMeta)
 
-			q, err := parseQuery(a, connMap, true)
+			q, err := parseQuery(a, connMap)
 			if err != nil {
 				return nil, err
 			}
@@ -78,17 +79,13 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 		if i == len(args)-1 {
 			queries = append(queries, tmpQueryMeta)
 		}
+
 	}
 	return queries, nil
 }
 
-func parseQuery(a string, connMap map[string]string, piped bool) (QueryMetadata, error) {
-	var match []string
-	if piped {
-		match = regexp.MustCompile(`\|(.*)>`).FindStringSubmatch(a)
-	} else {
-		match = regexp.MustCompile(`(.*)>`).FindStringSubmatch(a)
-	}
+func parseQuery(a string, connMap map[string]string) (QueryMetadata, error) {
+	match := regexp.MustCompile(`^(.*?)>`).FindStringSubmatch(a)
 	conn := ""
 	if len(match) > 0 {
 		conn = strings.TrimLeft(match[1], " ")
@@ -98,12 +95,7 @@ func parseQuery(a string, connMap map[string]string, piped bool) (QueryMetadata,
 		return QueryMetadata{}, fmt.Errorf("Connection key '%s' not found.", conn)
 	}
 
-	var split []string
-	if piped {
-		split = strings.Split(a, fmt.Sprintf("|%s>", conn))
-	} else {
-		split = strings.Split(a, fmt.Sprintf("%s>", conn))
-	}
+	split := strings.Split(a, fmt.Sprintf("%s>", conn))
 
 	query := strings.TrimLeft(split[1], " ")
 	if len(split) < 2 || len(query) == 0 {
@@ -130,7 +122,7 @@ func parseQuery(a string, connMap map[string]string, piped bool) (QueryMetadata,
 }
 
 func hasConnArg(a string) bool {
-	return len(regexp.MustCompile(`\|.*>`).FindString(a)) > 0
+	return len(regexp.MustCompile(`^.*?>`).FindString(a)) > 0
 }
 
 func isQuery(s string) bool {

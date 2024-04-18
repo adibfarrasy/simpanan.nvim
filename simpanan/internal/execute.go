@@ -3,13 +3,11 @@ package internal
 import (
 	"database/sql"
 	"errors"
-	"fmt"
-	"regexp"
 
 	_ "github.com/lib/pq"
 )
 
-func execute(q QueryMetadata, previousResults []RowData) ([]RowData, error) {
+func execute(q QueryMetadata, previousResults []byte) ([]byte, error) {
 	switch q.ConnType {
 	case Postgres:
 		if q.ExecType == Query {
@@ -29,31 +27,21 @@ func execute(q QueryMetadata, previousResults []RowData) ([]RowData, error) {
 	}
 }
 
-func executePostgresQuery(q QueryMetadata, previousResults []RowData) ([]RowData, error) {
+func executePostgresQuery(q QueryMetadata, previousResults []byte) ([]byte, error) {
 	db, err := sql.Open("postgres", q.Conn)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	argCount, err := checkArgsValidity(q, previousResults)
-	if err != nil {
-		return nil, err
-	}
-
 	var rows *sql.Rows
-	if argCount == 0 {
+	if len(previousResults) == 0 {
 		rows, err = db.Query(q.ExecLine)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		// since it's not possible to accommodate all the previousResults,
-		// only the first index is used in the query.
-		rows, err = db.Query(q.ExecLine, previousResults[0])
-		if err != nil {
-			return nil, err
-		}
+		// TODO: handle pipeline and query with the args
 	}
 
 	defer rows.Close()
@@ -71,36 +59,40 @@ func executePostgresQuery(q QueryMetadata, previousResults []RowData) ([]RowData
 		dest[i] = &values[i]
 	}
 
-	var results []RowData
+	var results [][]byte
 	for rows.Next() {
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
 
-		rowResults := RowData{}
+		rowResults := rowData{}
 		for i, col := range values {
 			if col == nil {
-				rowResults = append(rowResults, ColumnValuePair([]string{columns[i], "NULL"}))
+				rowResults = append(rowResults, columnValuePair{key: columns[i], value: "NULL"})
 			} else {
-				rowResults = append(rowResults, ColumnValuePair([]string{columns[i], string(col)}))
+				rowResults = append(rowResults, columnValuePair{key: columns[i], value: string(col)})
 			}
 		}
 
-		results = append(results, rowResults)
+		resBytes, err := rowResults.MarshallJSON()
+		if err != nil {
+			return nil, err
+		}
+
+		results = append(results, resBytes)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return results, nil
-}
-
-func checkArgsValidity(q QueryMetadata, previousResults []RowData) (int, error) {
-	match := regexp.MustCompile(`$>`).FindAllSubmatch([]byte(q.ExecLine), -1)
-
-	if len(previousResults) > 0 && len(match) != len(previousResults[0]) {
-		return 0, fmt.Errorf("Number of given and required arguments mismatched. Given %d, required %d.", len(previousResults[0]), len(match))
+	jsonArrB := []byte{'['}
+	for i, r := range results {
+		jsonArrB = append(jsonArrB, r...)
+		if i != len(results)-1 {
+			jsonArrB = append(jsonArrB, ',')
+		}
 	}
+	jsonArrB = append(jsonArrB, ']')
 
-	return len(match), nil
+	return jsonArrB, nil
 }

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,7 +24,7 @@ func HandleRunQuery(args []string) (string, error) {
 		return "", err
 	}
 
-	tmpRes := []RowData{}
+	tmpRes := []byte{}
 	for i, q := range queries {
 		if i > 0 && len(tmpRes) == 0 {
 			return "", errors.New("No arguments passed to one of the pipelines.")
@@ -37,14 +38,7 @@ func HandleRunQuery(args []string) (string, error) {
 		tmpRes = res
 	}
 
-	payload := []map[string]string{}
-	for _, tr := range tmpRes {
-		payload = append(payload, tr.Map())
-	}
-
-	res, err := json.MarshalIndent(payload, "", "\t")
-
-	return string(res), err
+	return processPayload(tmpRes)
 }
 
 func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, error) {
@@ -88,7 +82,6 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 	return queries, nil
 }
 
-// TODO: figure out the pipelining between multiple queries
 func parseQuery(a string, connMap map[string]string, piped bool) (QueryMetadata, error) {
 	var match []string
 	if piped {
@@ -147,4 +140,13 @@ func isQuery(s string) bool {
 		}
 	}
 	return false
+}
+
+func processPayload(res []byte) (string, error) {
+	var prettyJSON bytes.Buffer
+	err := json.Indent(&prettyJSON, res, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(prettyJSON.Bytes()), nil
 }

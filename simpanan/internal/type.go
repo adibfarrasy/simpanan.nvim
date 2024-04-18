@@ -17,8 +17,11 @@ type (
 		ExecType ExecType
 	}
 
-	ColumnValuePair []string // index 0 is column name, index 1 is value
-	RowData         []ColumnValuePair
+	columnValuePair struct {
+		key   string
+		value any
+	}
+	rowData []columnValuePair
 )
 
 var (

@@ -2,6 +2,8 @@
 Run any query by adding `{your_connection}>` prefix! 
 On any file, right on your editor!
 
+## Showcase
+### Basic Query
 [simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
 
 The vision for this Neovim plugin is to:
@@ -11,10 +13,7 @@ The vision for this Neovim plugin is to:
   databases, MongoDB Compass for MongoDB, etc. - thus saving precious disk space
   and improve development speed from having to jump from one client to another.
 - Standardize all database output into the de-facto standard JSON. This will
-  enable pipelining from one database query to another.
-- Did I mention data pipelining? Those are in the works too. NOTE: it's still in
-  the architecture design stage, so it will not come very soon. Feel free to
-  submit PRs to help!
+  enable data transformation (via jq) and pipelining from one database query to another.
 
 ## Requirements
 - Go 1.20+
@@ -45,14 +44,15 @@ The vision for this Neovim plugin is to:
 ## Features
 - Support for postgres query
 - List connections
+- Data pipelining
 
 ## WIP
 These planned features will be supported in order:
 1. Manage connections (add/ delete) from the list_connections popup
+2. jq as 'faux query' for intermediate data pipelining
 2. Support for mongodb query
 3. Support for redis query
 4. Support for MySQL and SQLite query
-5. Data pipelining
 
 ## FAQ
 - What's with the name?

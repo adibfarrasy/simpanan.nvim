@@ -3,6 +3,9 @@ package internal
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -70,7 +73,7 @@ func executePostgresQuery(q QueryMetadata, previousResults []byte) ([]byte, erro
 			if col == nil {
 				rowResults = append(rowResults, columnValuePair{key: columns[i], value: "NULL"})
 			} else {
-				rowResults = append(rowResults, columnValuePair{key: columns[i], value: string(col)})
+				rowResults = append(rowResults, columnValuePair{key: columns[i], value: convertToType(col)})
 			}
 		}
 
@@ -95,4 +98,41 @@ func executePostgresQuery(q QueryMetadata, previousResults []byte) ([]byte, erro
 	jsonArrB = append(jsonArrB, ']')
 
 	return jsonArrB, nil
+}
+
+func convertToType(col sql.RawBytes) any {
+	colB := []byte(col)
+	floatValue, err := bytesToFloat64(colB)
+	if err == nil {
+		return floatValue
+	}
+	intValue, err := bytesToInt64(colB)
+	if err == nil {
+		return intValue
+	}
+	boolValue, err := bytesToBool(colB)
+	if err == nil {
+		return boolValue
+	}
+	return string(colB)
+}
+
+func bytesToInt64(b []byte) (int64, error) {
+	return strconv.ParseInt(string(b), 10, 64)
+}
+
+func bytesToFloat64(b []byte) (float64, error) {
+	return strconv.ParseFloat(string(b), 64)
+}
+
+func bytesToBool(b []byte) (bool, error) {
+	s := strings.ToLower(string(b))
+	switch s {
+	case "true", "1":
+		return true, nil
+	case "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid boolean value: %s", s)
+	}
 }

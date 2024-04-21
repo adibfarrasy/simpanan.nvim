@@ -14,10 +14,12 @@ The vision for this Neovim plugin is to:
 ## Showcase
 ### Basic Query
 Add connection prefix to run query.
+
 [simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
 
 ### Data Pipelining
 Grab a data from one database to another database. Useful if your project/s use microservice architecture with multiple databases.
+
 [Screencast from 2024-04-21 15-26-20.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/b5cd46e2-54bf-4bdd-9822-a8eee938f3a6)
 
 

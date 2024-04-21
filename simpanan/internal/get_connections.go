@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"simpanan/internal/common"
 )
 
 func HandleGetConnections(args []string) ([]string, error) {
@@ -19,7 +20,7 @@ func HandleGetConnections(args []string) ([]string, error) {
 	return data, nil
 }
 
-func GetConnectionList() ([]KeyURIPair, error) {
+func GetConnectionList() ([]common.KeyURIPair, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -31,7 +32,7 @@ func GetConnectionList() ([]KeyURIPair, error) {
 		return nil, err
 	}
 
-	var keyUriPairs []KeyURIPair
+	var keyUriPairs []common.KeyURIPair
 	err = json.Unmarshal(fileContent, &keyUriPairs)
 
 	return keyUriPairs, err

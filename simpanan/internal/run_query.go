@@ -3,9 +3,9 @@ package internal
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
+	"simpanan/internal/common"
 	"strings"
 )
 
@@ -18,7 +18,7 @@ func HandleRunQuery(args []string) (string, error) {
 		return "", err
 	}
 
-	connMap := KeyURIPairs(conns).Map()
+	connMap := common.KeyURIPairs(conns).Map()
 
 	queries, err := parseQueries(args, connMap)
 	if err != nil {
@@ -28,7 +28,7 @@ func HandleRunQuery(args []string) (string, error) {
 	tmpRes := []byte{}
 	for i, q := range queries {
 		if i > 0 && len(tmpRes) == 0 {
-			return "", errors.New("No arguments passed to one of the pipelines.")
+			return "", fmt.Errorf("No arguments passed to one of the pipelines.")
 		}
 
 		res, err := execute(q, tmpRes)
@@ -42,10 +42,10 @@ func HandleRunQuery(args []string) (string, error) {
 	return processPayload(tmpRes)
 }
 
-func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, error) {
-	queries := []QueryMetadata{}
+func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetadata, error) {
+	queries := []common.QueryMetadata{}
 
-	tmpQueryMeta := QueryMetadata{}
+	tmpQueryMeta := common.QueryMetadata{}
 	for i, a := range args {
 		if i == 0 {
 			q, err := parseQuery(a, connMap)
@@ -65,7 +65,7 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 		}
 
 		if !hasConnArg(a) {
-			tmpQueryMeta.ExecLine += fmt.Sprintf(" %s", a)
+			tmpQueryMeta.QueryLine += fmt.Sprintf(" %s", a)
 		} else {
 			queries = append(queries, tmpQueryMeta)
 
@@ -84,7 +84,7 @@ func parseQueries(args []string, connMap map[string]string) ([]QueryMetadata, er
 	return queries, nil
 }
 
-func parseQuery(a string, connMap map[string]string) (QueryMetadata, error) {
+func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, error) {
 	match := regexp.MustCompile(`^(.*?)>`).FindStringSubmatch(a)
 	conn := ""
 	if len(match) > 0 {
@@ -92,46 +92,29 @@ func parseQuery(a string, connMap map[string]string) (QueryMetadata, error) {
 	}
 	v, ok := connMap[conn]
 	if !ok {
-		return QueryMetadata{}, fmt.Errorf("Connection key '%s' not found.", conn)
+		return common.QueryMetadata{}, fmt.Errorf("Connection key '%s' not found.", conn)
 	}
 
 	split := strings.Split(a, fmt.Sprintf("%s>", conn))
 
 	query := strings.TrimLeft(split[1], " ")
 	if len(split) < 2 || len(query) == 0 {
-		return QueryMetadata{}, errors.New("No query on the right hand side of connection.")
+		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
 	}
 
-	var execType ExecType
-	if isQuery(query) {
-		execType = Query
-	} else {
-		execType = Command
-	}
-
-	connType, err := URI(v).ConnType()
+	connType, err := common.URI(v).ConnType()
 	if err != nil {
-		return QueryMetadata{}, err
+		return common.QueryMetadata{}, err
 	}
-	return QueryMetadata{
-		Conn:     v,
-		ConnType: *connType,
-		ExecLine: query,
-		ExecType: execType,
+	return common.QueryMetadata{
+		Conn:      v,
+		ConnType:  *connType,
+		QueryLine: query,
 	}, nil
 }
 
 func hasConnArg(a string) bool {
 	return len(regexp.MustCompile(`^.*?>`).FindString(a)) > 0
-}
-
-func isQuery(s string) bool {
-	for _, q := range QUERY_PREFIXES {
-		if strings.HasPrefix(s, q) {
-			return true
-		}
-	}
-	return false
 }
 
 func processPayload(res []byte) (string, error) {

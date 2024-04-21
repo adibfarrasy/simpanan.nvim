@@ -1,4 +1,4 @@
-package internal
+package common
 
 import (
 	"encoding/json"
@@ -34,7 +34,7 @@ func (kups KeyURIPairs) Map() map[string]string {
 	return res
 }
 
-func (rd rowData) MarshallJSON() (out []byte, err error) {
+func (rd RowData) MarshallJSON() (out []byte, err error) {
 	if rd == nil {
 		return []byte(`null`), nil
 	}
@@ -44,11 +44,11 @@ func (rd rowData) MarshallJSON() (out []byte, err error) {
 
 	out = append(out, '{')
 	for _, e := range rd {
-		key, err := json.Marshal(e.key)
+		key, err := json.Marshal(e.Key)
 		if err != nil {
 			return nil, err
 		}
-		val, err := json.Marshal(e.value)
+		val, err := json.Marshal(e.Value)
 		if err != nil {
 			return nil, err
 		}

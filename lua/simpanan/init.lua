@@ -48,6 +48,7 @@ function M.list_connections()
 				right = 3,
 			},
 		},
+		relative = "editor",
 		position = "50%",
 		size = {
 			width = "50%",

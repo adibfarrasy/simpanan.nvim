@@ -1,4 +1,4 @@
-package internal
+package common
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ func TestPipeData(t *testing.T) {
 		{
 			name: "JSON array payload",
 			qm: QueryMetadata{
-				ExecLine: "SELECT * FROM blah WHERE id = {{.[0].foo}};",
+				QueryLine: "SELECT * FROM blah WHERE id = {{.[0].foo}};",
 			},
 			payload:          []byte("[{\"foo\": 1}]"),
 			expectedError:    nil,
@@ -26,7 +26,7 @@ func TestPipeData(t *testing.T) {
 		{
 			name: "JSON object payload",
 			qm: QueryMetadata{
-				ExecLine: "SELECT * FROM blah WHERE id = {{.foo}};",
+				QueryLine: "SELECT * FROM blah WHERE id = {{.foo}};",
 			},
 			payload:          []byte("{\"foo\": 1}"),
 			expectedError:    nil,
@@ -35,7 +35,7 @@ func TestPipeData(t *testing.T) {
 		{
 			name: "multiple swap",
 			qm: QueryMetadata{
-				ExecLine: "SELECT * FROM blah WHERE id = {{.foo}} AND status = \"{{.bar}}\";",
+				QueryLine: "SELECT * FROM blah WHERE id = {{.foo}} AND status = \"{{.bar}}\";",
 			},
 			payload:          []byte("{\"foo\": 1, \"bar\": \"hello\"}"),
 			expectedError:    nil,
@@ -45,9 +45,9 @@ func TestPipeData(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := pipeData(&test.qm, test.payload)
+			err := PipeData(&test.qm, test.payload)
 			assert.Equal(t, test.expectedError, err)
-			assert.Equal(t, test.expectedExecLine, test.qm.ExecLine)
+			assert.Equal(t, test.expectedExecLine, test.qm.QueryLine)
 		})
 	}
 }

@@ -1,4 +1,4 @@
-package internal
+package common
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"github.com/itchyny/gojq"
 )
 
-func pipeData(q *QueryMetadata, pipedData []byte) error {
+func PipeData(q *QueryMetadata, pipedData []byte) error {
 	var input any
 
 	var sliceRes []any
@@ -24,7 +24,7 @@ func pipeData(q *QueryMetadata, pipedData []byte) error {
 		input = sliceRes
 	}
 
-	match := regexp.MustCompile(`\{\{([^{}]+)\}\}`).FindAllStringSubmatch(q.ExecLine, -1)
+	match := regexp.MustCompile(`\{\{([^{}]+)\}\}`).FindAllStringSubmatch(q.QueryLine, -1)
 	for _, m := range match {
 		captured := m[1]
 		query, err := gojq.Parse(captured)
@@ -48,7 +48,7 @@ func pipeData(q *QueryMetadata, pipedData []byte) error {
 			replacement = v
 		}
 
-		q.ExecLine = strings.Replace(q.ExecLine, m[0], fmt.Sprintf("%v", replacement), 1)
+		q.QueryLine = strings.Replace(q.QueryLine, m[0], fmt.Sprintf("%v", replacement), 1)
 	}
 
 	return nil

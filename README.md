@@ -2,18 +2,24 @@
 Run any query by adding `{your_connection}>` prefix! 
 On any file, right on your editor!
 
-## Showcase
-### Basic Query
-[simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
-
 The vision for this Neovim plugin is to:
-- Create a convenient datastore runner for many popular databases, e.g. 
+- Create a convenient polyglot query runner for many popular databases, e.g. 
   PostgeSQL, MySQL, SQLite, MongoDB, and Redis.
 - Remove the need for many database clients such as DBeaver for relational
   databases, MongoDB Compass for MongoDB, etc. - thus saving precious disk space
   and improve development speed from having to jump from one client to another.
 - Standardize all database output into the de-facto standard JSON. This will
-  enable data transformation (via jq) and pipelining from one database query to another.
+  enable data transformation (via [gojq](https://github.com/itchyny/gojq)) and pipelining from one database query to another.
+
+## Showcase
+### Basic Query
+Add connection prefix to run query.
+[simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
+
+### Data Pipelining
+Grab a data from one database to another database. Useful if your project/s use microservice architecture with multiple databases.
+[Screencast from 2024-04-21 15-26-20.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/b5cd46e2-54bf-4bdd-9822-a8eee938f3a6)
+
 
 ## Requirements
 - Go 1.20+
@@ -42,17 +48,17 @@ The vision for this Neovim plugin is to:
    start writing your query and execute it with the execute keymap.
 
 ## Features
-- Support for postgres query
+- Support for PostgreSQL and some MongoDB read query
 - List connections
 - Data pipelining
 
 ## WIP
 These planned features will be supported in order:
 1. Manage connections (add/ delete) from the list_connections popup
-2. jq as 'faux query' for intermediate data pipelining
-2. Support for mongodb query
-3. Support for redis query
-4. Support for MySQL and SQLite query
+2. jq as 'faux connection' for intermediate data pipelining
+3. regex as 'faux connection' and data pipelining
+4. Support for redis query
+5. Support for MySQL and SQLite query
 
 ## FAQ
 - What's with the name?

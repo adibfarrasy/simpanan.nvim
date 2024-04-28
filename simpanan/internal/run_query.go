@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"simpanan/internal/common"
@@ -15,14 +13,14 @@ func HandleRunQuery(args []string) (string, error) {
 
 	conns, err := GetConnectionList()
 	if err != nil {
-		return "", err
+		return common.ProcessError(err)
 	}
 
 	connMap := common.KeyURIPairs(conns).Map()
 
 	queries, err := parseQueries(args, connMap)
 	if err != nil {
-		return "", err
+		return common.ProcessError(err)
 	}
 
 	tmpRes := []byte{}
@@ -33,13 +31,13 @@ func HandleRunQuery(args []string) (string, error) {
 
 		res, err := execute(q, tmpRes)
 		if err != nil {
-			return "", err
+			return common.ProcessError(err)
 		}
 
 		tmpRes = res
 	}
 
-	return processPayload(tmpRes)
+	return common.ProcessPayload(tmpRes)
 }
 
 func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetadata, error) {
@@ -115,13 +113,4 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 
 func hasConnArg(a string) bool {
 	return len(regexp.MustCompile(`^.*?>`).FindString(a)) > 0
-}
-
-func processPayload(res []byte) (string, error) {
-	var prettyJSON bytes.Buffer
-	err := json.Indent(&prettyJSON, res, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(prettyJSON.Bytes()), nil
 }

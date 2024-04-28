@@ -14,19 +14,30 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type queryHandlerFn func(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error)
+type (
+	method         string
+	queryHandlerFn func(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error)
+)
 
-var readActions = map[string]queryHandlerFn{
-	"find":                   handleFind,
-	"findOne":                handleFindOne,
-	"aggregate":              handleAggregate,
-	"distinct":               handleDistinct,
-	"count":                  handleCount,
-	"estimatedDocumentCount": handleEstimatedDocCount,
-}
+var (
+	find                   method = "find"
+	findOne                method = "findOne"
+	aggregate              method = "aggregate"
+	distinct               method = "distinct"
+	count                  method = "count"
+	estimatedDocumentCount method = "estimatedDocumentCount"
+
+	readActions = map[method]queryHandlerFn{
+		find:                   handleFind,
+		findOne:                handleFindOne,
+		aggregate:              handleAggregate,
+		distinct:               handleDistinct,
+		count:                  handleCount,
+		estimatedDocumentCount: handleEstimatedDocCount,
+	}
+)
 
 func ExecuteMongoQuery(q common.QueryMetadata) ([]byte, error) {
-	// TODO: handle passing previousResults
 	opt := options.Client().ApplyURI(q.Conn)
 
 	ctx := context.Background()
@@ -43,38 +54,78 @@ func ExecuteMongoQuery(q common.QueryMetadata) ([]byte, error) {
 
 	db := client.Database(strings.Split(q.Conn, "/")[3])
 
-	matches := regexp.MustCompile(`db\.(.*?)\.(.*?)\((.*)\)`).FindAllStringSubmatch(q.QueryLine, -1)
+	matches := regexp.MustCompile(`db\.(.*?)\.(.*?)\((.*?)\)(\..*)?$`).FindAllStringSubmatch(q.QueryLine, -1)
+
 	if len(matches) < 1 || len(matches[0]) < 4 {
 		return nil, fmt.Errorf("Invalid read query type and data: '%+v'", matches)
 	}
 
 	coll := db.Collection(matches[0][1])
-	handler, ok := readActions[matches[0][2]]
+	handler, ok := readActions[method(matches[0][2])]
 	if !ok {
 		return nil, fmt.Errorf("Read handler not found: %v.", matches[0][2])
 	}
-	return handler(ctx, coll, matches[0][3])
+
+	cursorOptStr := ""
+	if len(matches[0]) == 5 {
+		cursorOptStr = matches[0][4]
+	}
+	return handler(ctx, coll, matches[0][3], cursorOptStr)
 }
 
-func handleFind(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
-	f, err := constructJSONFilter(filter)
+func handleFind(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	params := strings.Split(methodParamStr, ",")
+	f, err := constructBsonObject(params[0])
 	if err != nil {
 		return nil, err
 	}
 
-	cursor, err := coll.Find(ctx, f)
+	opts := options.Find()
+	if len(params) > 1 {
+		o, err := constructBsonObject(params[1])
+		if err != nil {
+			return nil, err
+		}
+
+		opts.SetProjection(o)
+	}
+
+	cursorOpts, err := parseCursorOpts(find, cursorOptStr)
+	if err != nil {
+		return nil, err
+	}
+	for _, co := range cursorOpts {
+		newOpt, err := co.Apply(opts)
+		if err != nil {
+			return nil, err
+		}
+		tmp, ok := newOpt.(*options.FindOptions)
+		if !ok {
+			return nil, fmt.Errorf("Failed parsing FindOptions for %v", co)
+		}
+		opts = tmp
+	}
+
+	cursor, err := coll.Find(ctx, f, opts)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", err, f)
 	}
 	defer cursor.Close(ctx)
 
+	rowCount := 0
+
 	tmpRes := []map[string]any{}
 	for cursor.Next(ctx) {
+		if rowCount == common.MaxDocumentLimit {
+			break
+		}
+
 		var result map[string]any
 		if err := cursor.Decode(&result); err != nil {
 			return nil, err
 		}
 		tmpRes = append(tmpRes, result)
+		rowCount++
 	}
 
 	if err := cursor.Err(); err != nil {
@@ -88,13 +139,26 @@ func handleFind(ctx context.Context, coll *mongo.Collection, filter string) ([]b
 	return res, nil
 }
 
-func handleFindOne(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
-	f, err := constructJSONFilter(filter)
+func handleFindOne(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	params := strings.Split(methodParamStr, ",")
+
+	f, err := constructBsonObject(params[0])
 	if err != nil {
 		return nil, err
 	}
+
+	opts := options.FindOne()
+	if len(params) > 1 {
+		o, err := constructBsonObject(params[1])
+		if err != nil {
+			return nil, err
+		}
+
+		opts.SetProjection(o)
+	}
+
 	var result bson.M
-	err = coll.FindOne(ctx, f).Decode(&result)
+	err = coll.FindOne(ctx, f, opts).Decode(&result)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %v", err, f)
 	}
@@ -105,13 +169,14 @@ func handleFindOne(ctx context.Context, coll *mongo.Collection, filter string) (
 	return res, nil
 }
 
-func handleAggregate(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
+func handleAggregate(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
 	// TODO: implement this
 	return nil, nil
 }
 
-func handleCount(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
-	f, err := constructJSONFilter(filter)
+func handleCount(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	params := strings.Split(methodParamStr, ",")
+	f, err := constructBsonObject(params[0])
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +191,7 @@ func handleCount(ctx context.Context, coll *mongo.Collection, filter string) ([]
 	return res, nil
 }
 
-func handleEstimatedDocCount(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
+func handleEstimatedDocCount(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
 	count, err := coll.EstimatedDocumentCount(ctx)
 	if err != nil {
 		return nil, err
@@ -138,12 +203,13 @@ func handleEstimatedDocCount(ctx context.Context, coll *mongo.Collection, filter
 	return res, nil
 }
 
-func handleDistinct(ctx context.Context, coll *mongo.Collection, filter string) ([]byte, error) {
-	fieldAndFilter := strings.Split(filter, ",")
+func handleDistinct(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	params := strings.Split(methodParamStr, ",")
+	fieldAndFilter := strings.Split(params[0], ",")
 	fieldName := strings.ReplaceAll(fieldAndFilter[0], "\"", "")
 	var f any
 	if len(fieldAndFilter) > 1 {
-		f2, err := constructJSONFilter(fieldAndFilter[1])
+		f2, err := constructBsonObject(fieldAndFilter[1])
 		if err != nil {
 			return nil, err
 		}
@@ -162,29 +228,36 @@ func handleDistinct(ctx context.Context, coll *mongo.Collection, filter string) 
 	return res, nil
 }
 
-func constructJSONFilter(filterStr string) (any, error) {
-	if filterStr == "{}" {
+func constructBsonObject(objStr string) (any, error) {
+	if objStr == "{}" {
 		return bson.D{}, nil
 	}
 
-	var filterMap bson.M
-	err := bson.UnmarshalExtJSON([]byte(filterStr), false, &filterMap)
+	var resultMap bson.M
+	err := bson.UnmarshalExtJSON([]byte(objStr), false, &resultMap)
 	if err != nil {
-		return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), filterStr)
-	}
-
-	v, ok := filterMap["_id"]
-	if ok {
-		replacer := strings.NewReplacer("'", "", "(", "", ")", "")
-		hex := replacer.Replace(strings.Split(fmt.Sprintf("%v", v), "ObjectId")[1])
-		id, err := primitive.ObjectIDFromHex(hex)
-		if err != nil {
-			return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), hex)
+		if strings.Contains(err.Error(), "invalid JSON input") {
+			return bson.D{}, fmt.Errorf("%s: %s.\nHint: are all the key-value string fields enclosed by quotes?", err.Error(), objStr)
 		}
-		filterMap["_id"] = id
+		return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), objStr)
 	}
 
-	return filterMap, nil
+	v, ok := resultMap["_id"]
+	if ok {
+		switch v.(type) {
+		case string:
+			// special handling for ObjectId type
+			replacer := strings.NewReplacer("'", "", "(", "", ")", "")
+			hex := replacer.Replace(strings.Split(fmt.Sprintf("%v", v), "ObjectId")[1])
+			id, err := primitive.ObjectIDFromHex(hex)
+			if err != nil {
+				return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), hex)
+			}
+			resultMap["_id"] = id
+		}
+	}
+
+	return resultMap, nil
 }
 
 func QueryTypeMongo(query string) common.QueryType {
@@ -192,7 +265,7 @@ func QueryTypeMongo(query string) common.QueryType {
 	if len(matches) < 2 {
 		return common.QueryType("")
 	}
-	if _, ok := readActions[matches[1]]; ok {
+	if _, ok := readActions[method(matches[1])]; ok {
 		return common.Read
 	}
 

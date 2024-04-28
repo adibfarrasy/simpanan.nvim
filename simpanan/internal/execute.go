@@ -18,7 +18,12 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 	case common.Postgres:
 		switch adapters.QueryTypePostgres(q.QueryLine) {
 		case common.Read:
-			return adapters.ExecutePostgresQuery(q)
+			if q.QueryLine[0] == '\\' {
+				// special postgres syntax, e.g. \dt, \d <table>, etc.
+				return adapters.ExecutePostgresAdminCmd(q)
+			} else {
+				return adapters.ExecutePostgresQuery(q)
+			}
 		case common.Write:
 			return nil, errors.New("Not implemented.")
 		default:

@@ -2,7 +2,9 @@ package adapters
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"simpanan/internal/common"
 	"strconv"
 	"strings"
@@ -36,8 +38,14 @@ func ExecutePostgresQuery(q common.QueryMetadata) ([]byte, error) {
 		dest[i] = &values[i]
 	}
 
+	rowCount := 0
+
 	var results [][]byte
 	for rows.Next() {
+		if rowCount == common.MaxDocumentLimit {
+			break
+		}
+
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
@@ -57,6 +65,7 @@ func ExecutePostgresQuery(q common.QueryMetadata) ([]byte, error) {
 		}
 
 		results = append(results, resBytes)
+		rowCount++
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -118,4 +127,67 @@ func QueryTypePostgres(query string) common.QueryType {
 	}
 
 	return common.Read
+}
+
+func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
+	switch q.QueryLine {
+	case "\\dt":
+		q.QueryLine = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+		return ExecutePostgresQuery(q)
+	default:
+		matches := regexp.MustCompile(`\\d (.*)`).FindAllStringSubmatch(q.QueryLine, -1)
+		if len(matches) != 1 {
+			return nil, fmt.Errorf("ExecutePostgresAdminCmd: invalid query format %s.", q.QueryLine)
+		}
+
+		tableName := matches[0][1]
+
+		q.QueryLine = fmt.Sprintf("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '%s'", tableName)
+		colDef, err := ExecutePostgresQuery(q)
+		if err != nil {
+			return nil, err
+		}
+		var colDefMap []map[string]any
+		if err := json.Unmarshal(colDef, &colDefMap); err != nil {
+			return nil, err
+		}
+
+		q.QueryLine = fmt.Sprintf(`SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = '%s';`, tableName)
+		indices, err := ExecutePostgresQuery(q)
+		if err != nil {
+			return nil, err
+		}
+		var indicesMap []map[string]any
+		if err := json.Unmarshal(indices, &indicesMap); err != nil {
+			return nil, err
+		}
+
+		q.QueryLine = fmt.Sprintf(`SELECT tc.constraint_name, tc.constraint_type, ccu.column_name
+FROM information_schema.table_constraints tc 
+JOIN information_schema.constraint_column_usage ccu 
+ON tc.constraint_name = ccu.constraint_name 
+WHERE tc.table_name = '%s';`, tableName)
+		constraints, err := ExecutePostgresQuery(q)
+		if err != nil {
+			return nil, err
+		}
+		var constraintMap []map[string]any
+		if err := json.Unmarshal(constraints, &constraintMap); err != nil {
+			return nil, err
+		}
+
+		result := struct {
+			ColumnDefinitions []map[string]any `json:"column_definitions"`
+			Indices           []map[string]any `json:"indices"`
+			Constraints       []map[string]any `json:"constraints"`
+		}{
+			ColumnDefinitions: colDefMap,
+			Indices:           indicesMap,
+			Constraints:       constraintMap,
+		}
+
+		return json.Marshal(result)
+	}
 }

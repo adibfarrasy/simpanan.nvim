@@ -27,6 +27,7 @@ var (
 	Postgres ConnType = "postgres"
 	Mongo    ConnType = "mongo"
 	Redis    ConnType = "redis"
+	Jq       ConnType = "jq"
 
 	Write QueryType = "write"
 	Read  QueryType = "read"

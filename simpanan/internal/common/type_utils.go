@@ -20,6 +20,8 @@ func (u URI) ConnType() (*ConnType, error) {
 		return &Mongo, nil
 	case strings.Contains(protocol, "redis"):
 		return &Redis, nil
+	case strings.Contains(protocol, "jq"):
+		return &Jq, nil
 	default:
 		return nil, errors.New("unknown connection type")
 	}

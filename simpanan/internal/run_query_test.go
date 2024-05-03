@@ -62,6 +62,17 @@ func TestParseQuery(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name:    "parsed jq query",
+			arg:     "jq> .",
+			connMap: map[string]string{"jq": "jq://"},
+			expectedResult: common.QueryMetadata{
+				Conn:      "jq://",
+				ConnType:  common.Jq,
+				QueryLine: ".",
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, test := range tests {

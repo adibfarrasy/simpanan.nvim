@@ -10,7 +10,7 @@ import (
 )
 
 func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
-	if len(previousResults) != 0 {
+	if len(previousResults) != 0 && q.ConnType != common.Jq {
 		common.PipeData(&q, previousResults)
 	}
 
@@ -42,6 +42,10 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 
 	case common.Redis:
 		return nil, errors.New("Not implemented.")
+
+	case common.Jq:
+		return adapters.ExecuteJqQuery(q, previousResults)
+
 	default:
 		return nil, errors.New("Unknown connection type.")
 	}

@@ -20,6 +20,9 @@ func HandleRunQuery(args []string) (string, error) {
 
 	connMap := common.KeyURIPairs(conns).Map()
 
+	// add special faux connection
+	connMap["jq"] = "jq://"
+
 	queries, err := parseQueries(args, connMap)
 	if err != nil {
 		return processError(err)

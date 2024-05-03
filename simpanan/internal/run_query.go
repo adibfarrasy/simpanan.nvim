@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"simpanan/internal/common"
@@ -13,39 +15,41 @@ func HandleRunQuery(args []string) (string, error) {
 
 	conns, err := GetConnectionList()
 	if err != nil {
-		return common.ProcessError(err)
+		return processError(err)
 	}
 
 	connMap := common.KeyURIPairs(conns).Map()
 
 	queries, err := parseQueries(args, connMap)
 	if err != nil {
-		return common.ProcessError(err)
+		return processError(err)
 	}
 
 	tmpRes := []byte{}
 	for i, q := range queries {
 		if i > 0 && len(tmpRes) == 0 {
-			return "", fmt.Errorf("No arguments passed to one of the pipelines.")
+			return processError(fmt.Errorf("No arguments passed to one of the pipelines."))
 		}
 
 		res, err := execute(q, tmpRes)
 		if err != nil {
-			return common.ProcessError(err)
+			return processError(err)
 		}
 
 		tmpRes = res
 	}
 
-	return common.ProcessPayload(tmpRes)
+	return processPayload(tmpRes)
 }
 
 func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetadata, error) {
 	queries := []common.QueryMetadata{}
 
 	tmpQueryMeta := common.QueryMetadata{}
+	firstQuery := true
+	args = sanitizeArgs(args)
 	for i, a := range args {
-		if i == 0 {
+		if firstQuery {
 			q, err := parseQuery(a, connMap)
 			if err != nil {
 				return nil, err
@@ -55,10 +59,8 @@ func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetad
 			if len(args) == 1 {
 				queries = append(queries, tmpQueryMeta)
 			}
-			continue
-		}
 
-		if len(strings.TrimLeft(a, " ")) == 0 {
+			firstQuery = !firstQuery
 			continue
 		}
 
@@ -77,7 +79,6 @@ func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetad
 		if i == len(args)-1 {
 			queries = append(queries, tmpQueryMeta)
 		}
-
 	}
 	return queries, nil
 }
@@ -113,4 +114,36 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 
 func hasConnArg(a string) bool {
 	return len(regexp.MustCompile(`^.*?>`).FindString(a)) > 0
+}
+
+func sanitizeArgs(args []string) (res []string) {
+	for _, a := range args {
+		a = strings.TrimSpace(a)
+		if len(a) == 0 {
+			continue
+		}
+		if _, found := strings.CutPrefix(a, "//"); found {
+			continue
+		}
+
+		res = append(res, a)
+	}
+	return
+}
+
+func processPayload(res []byte) (string, error) {
+	if len(res) == 0 {
+		return "", nil
+	}
+
+	var prettyJSON bytes.Buffer
+	err := json.Indent(&prettyJSON, res, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(prettyJSON.Bytes()), nil
+}
+
+func processError(err error) (string, error) {
+	return fmt.Sprintf("Error: %s", err.Error()), nil
 }

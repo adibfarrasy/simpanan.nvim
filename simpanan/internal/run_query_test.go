@@ -151,6 +151,27 @@ func TestParseQueries(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name: "handle comment line",
+			args: []string{"// some comment", "rew-dev> select * from reward_balances order by created_at desc limit 3",
+				"rew-dev> select * from rewards where id = '{{.[0].reward_id}}';"},
+			connMap: map[string]string{
+				"rew-dev": "postgres://root:root@localhost:port/db_name",
+			},
+			expectedResult: []common.QueryMetadata{
+				{
+					Conn:      "postgres://root:root@localhost:port/db_name",
+					ConnType:  common.Postgres,
+					QueryLine: "select * from reward_balances order by created_at desc limit 3",
+				},
+				{
+					Conn:      "postgres://root:root@localhost:port/db_name",
+					ConnType:  common.Postgres,
+					QueryLine: "select * from rewards where id = '{{.[0].reward_id}}';",
+				},
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, test := range tests {

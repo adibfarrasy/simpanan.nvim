@@ -20,12 +20,23 @@ type (
 )
 
 var (
+	// read methods
 	find                   method = "find"
 	findOne                method = "findOne"
 	aggregate              method = "aggregate"
 	distinct               method = "distinct"
 	count                  method = "count"
 	estimatedDocumentCount method = "estimatedDocumentCount"
+
+	// write methods
+	insert     method = "insert"
+	insertOne  method = "insertOne"
+	insertMany method = "insertMany"
+	update     method = "update"
+	updateOne  method = "updateOne"
+	updateMany method = "updateMany"
+	deleteOne  method = "deleteOne"
+	deleteMany method = "deleteMany"
 
 	readActions = map[method]queryHandlerFn{
 		find:                   handleFind,
@@ -35,9 +46,20 @@ var (
 		count:                  handleCount,
 		estimatedDocumentCount: handleEstimatedDocCount,
 	}
+
+	writeActions = map[method]queryHandlerFn{
+		insert:     handleInsert,
+		insertOne:  handleInsertOne,
+		insertMany: handleInsertMany,
+		update:     handleUpdate,
+		updateOne:  handleUpdateOne,
+		updateMany: handleUpdateMany,
+		deleteOne:  handleDeleteOne,
+		deleteMany: handleDeleteMany,
+	}
 )
 
-func ExecuteMongoQuery(q common.QueryMetadata) ([]byte, error) {
+func ExecuteMongoReadQuery(q common.QueryMetadata) ([]byte, error) {
 	opt := options.Client().ApplyURI(q.Conn)
 
 	ctx := context.Background()
@@ -74,7 +96,11 @@ func ExecuteMongoQuery(q common.QueryMetadata) ([]byte, error) {
 }
 
 func handleFind(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
-	params := strings.Split(methodParamStr, ",")
+	params, err := splitMethodParamStr(methodParamStr)
+	if err != nil {
+		return nil, err
+	}
+
 	f, err := constructBsonObject(params[0])
 	if err != nil {
 		return nil, err
@@ -140,7 +166,10 @@ func handleFind(ctx context.Context, coll *mongo.Collection, methodParamStr stri
 }
 
 func handleFindOne(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
-	params := strings.Split(methodParamStr, ",")
+	params, err := splitMethodParamStr(methodParamStr)
+	if err != nil {
+		return nil, err
+	}
 
 	f, err := constructBsonObject(params[0])
 	if err != nil {
@@ -175,7 +204,11 @@ func handleAggregate(ctx context.Context, coll *mongo.Collection, methodParamStr
 }
 
 func handleCount(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
-	params := strings.Split(methodParamStr, ",")
+	params, err := splitMethodParamStr(methodParamStr)
+	if err != nil {
+		return nil, err
+	}
+
 	f, err := constructBsonObject(params[0])
 	if err != nil {
 		return nil, err
@@ -204,7 +237,11 @@ func handleEstimatedDocCount(ctx context.Context, coll *mongo.Collection, method
 }
 
 func handleDistinct(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
-	params := strings.Split(methodParamStr, ",")
+	params, err := splitMethodParamStr(methodParamStr)
+	if err != nil {
+		return nil, err
+	}
+
 	fieldAndFilter := strings.Split(params[0], ",")
 	fieldName := strings.ReplaceAll(fieldAndFilter[0], "\"", "")
 	var f any
@@ -269,5 +306,91 @@ func QueryTypeMongo(query string) common.QueryType {
 		return common.Read
 	}
 
-	return common.Write
+	if _, ok := writeActions[method(matches[1])]; ok {
+		return common.Write
+	}
+
+	return common.QueryType("")
+}
+
+func ExecuteMongoWriteQuery(q common.QueryMetadata) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+
+func handleInsert(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleInsertOne(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleInsertMany(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleUpdate(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleUpdateOne(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleUpdateMany(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleDeleteOne(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+func handleDeleteMany(ctx context.Context, coll *mongo.Collection, methodParamStr string, cursorOptStr string) ([]byte, error) {
+	// TODO: implement this
+	return nil, nil
+}
+
+func splitMethodParamStr(input string) (result []string, err error) {
+	if len(input) == 0 {
+		err = fmt.Errorf("splitMethodParamStr: missing input string")
+		return
+	}
+
+	pairMap := map[rune]rune{
+		'}': '{',
+		')': '(',
+		']': '[',
+	}
+	stack := []rune{}
+	acc := []rune{}
+	for i, c := range input {
+		if c != ' ' {
+			acc = append(acc, c)
+		}
+		switch c {
+		case '{', '(', '[':
+			stack = append(stack, c)
+		case '}', ')', ']':
+			if len(stack) == 0 {
+				err = fmt.Errorf("invalid character at index %d", i)
+				return
+			} else {
+				if stack[len(stack)-1] != pairMap[c] {
+					err = fmt.Errorf("invalid parentheses at index %d", i)
+					return
+				}
+				stack = stack[:len(stack)-1]
+			}
+		case ',':
+			if len(stack) == 0 {
+				result = append(result, string(acc))
+				acc = []rune{}
+			}
+		}
+	}
+	if len(acc) > 0 {
+		result = append(result, string(acc))
+	}
+	return
 }

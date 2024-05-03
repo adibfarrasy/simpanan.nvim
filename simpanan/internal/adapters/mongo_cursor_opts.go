@@ -55,6 +55,9 @@ func (flimit findLimit) Apply(opts any) (any, error) {
 }
 
 func parseCursorOpts(method method, cursorOptStr string) ([]cursorOpt, error) {
+	if cursorOptStr == "" {
+		return []cursorOpt{}, nil
+	}
 	matches := regexp.MustCompile(`\.(.*?)\((.*?)\)`).FindAllStringSubmatch(cursorOptStr, -1)
 	if len(matches) < 2 {
 		return nil, fmt.Errorf("parseCursorOpts: invalid option length. method: %s, cursorOptStr: %s", string(method), cursorOptStr)

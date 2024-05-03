@@ -7,6 +7,10 @@ import (
 )
 
 func ProcessPayload(res []byte) (string, error) {
+	if len(res) == 0 {
+		return "", nil
+	}
+
 	var prettyJSON bytes.Buffer
 	err := json.Indent(&prettyJSON, res, "", "  ")
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func ExecutePostgresQuery(q common.QueryMetadata) ([]byte, error) {
+func ExecutePostgresReadQuery(q common.QueryMetadata) ([]byte, error) {
 	db, err := sql.Open("postgres", q.Conn)
 	if err != nil {
 		return nil, err
@@ -133,7 +133,7 @@ func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
 	switch q.QueryLine {
 	case "\\dt":
 		q.QueryLine = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
-		return ExecutePostgresQuery(q)
+		return ExecutePostgresReadQuery(q)
 	default:
 		matches := regexp.MustCompile(`\\d (.*)`).FindAllStringSubmatch(q.QueryLine, -1)
 		if len(matches) != 1 {
@@ -143,7 +143,7 @@ func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
 		tableName := matches[0][1]
 
 		q.QueryLine = fmt.Sprintf("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '%s'", tableName)
-		colDef, err := ExecutePostgresQuery(q)
+		colDef, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +155,7 @@ func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
 		q.QueryLine = fmt.Sprintf(`SELECT indexname, indexdef
 FROM pg_indexes
 WHERE tablename = '%s';`, tableName)
-		indices, err := ExecutePostgresQuery(q)
+		indices, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +169,7 @@ FROM information_schema.table_constraints tc
 JOIN information_schema.constraint_column_usage ccu 
 ON tc.constraint_name = ccu.constraint_name 
 WHERE tc.table_name = '%s';`, tableName)
-		constraints, err := ExecutePostgresQuery(q)
+		constraints, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err
 		}
@@ -190,4 +190,19 @@ WHERE tc.table_name = '%s';`, tableName)
 
 		return json.Marshal(result)
 	}
+}
+
+func ExecutePostgresWriteQuery(q common.QueryMetadata) ([]byte, error) {
+	db, err := sql.Open("postgres", q.Conn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	res, err := db.Exec(q.QueryLine)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(res)
 }

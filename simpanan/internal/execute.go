@@ -22,10 +22,10 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 				// special postgres syntax, e.g. \dt, \d <table>, etc.
 				return adapters.ExecutePostgresAdminCmd(q)
 			} else {
-				return adapters.ExecutePostgresQuery(q)
+				return adapters.ExecutePostgresReadQuery(q)
 			}
 		case common.Write:
-			return nil, errors.New("Not implemented.")
+			return adapters.ExecutePostgresWriteQuery(q)
 		default:
 			return nil, fmt.Errorf("Unknown query type: '%s'", q.QueryLine)
 		}
@@ -33,9 +33,9 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 	case common.Mongo:
 		switch adapters.QueryTypeMongo(q.QueryLine) {
 		case common.Read:
-			return adapters.ExecuteMongoQuery(q)
+			return adapters.ExecuteMongoReadQuery(q)
 		case common.Write:
-			return nil, errors.New("Not implemented.")
+			return adapters.ExecuteMongoWriteQuery(q)
 		default:
 			return nil, fmt.Errorf("Unknown query type: '%s'", q.QueryLine)
 		}

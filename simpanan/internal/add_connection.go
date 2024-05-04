@@ -29,8 +29,10 @@ func HandleAddConnection(args []string) (string, error) {
 		return "", fmt.Errorf("Invalid connection syntax '%s'", newConn)
 	}
 
+	label := strings.TrimSpace(c[0])
+	uri := strings.TrimSpace(c[1])
 	for _, conn := range conns {
-		if c[0] == conn.Key {
+		if label == conn.Key {
 			return "", fmt.Errorf("Connection with name '%s' already exists.", c[0])
 		}
 	}
@@ -41,8 +43,8 @@ func HandleAddConnection(args []string) (string, error) {
 	}
 
 	conns = append(conns, common.KeyURIPair{
-		Key: c[0],
-		URI: common.URI(c[1]),
+		Key: label,
+		URI: common.URI(uri),
 	})
 
 	filePath := filepath.Join(homeDir, ".local/share/nvim/simpanan_connections.json")

@@ -1,3 +1,7 @@
+local Popup = require("nui.popup")
+local Layout = require("nui.layout")
+local Input = require("nui.input")
+
 local M = {}
 
 M.conn = {}
@@ -7,31 +11,25 @@ M.execute_bufnr = nil
 local event = require("nui.utils.autocmd").event
 local util = require("simpanan.util")
 
-local function flush()
-	M.conn = {}
-	M.conn_count = 0
+function AddPopupHooks(popup, layout)
+	popup:on(event.BufLeave, function()
+		layout:unmount()
+	end)
+
+	popup:map("n", "q", function()
+		layout:unmount()
+	end, { noremap = true })
+
+	popup:map("n", "a", function()
+		ShowAddConnectionPopup(layout)
+	end, { noremap = true })
+
+	popup:map("n", "d", function()
+		ShowDeleteConnectionPopup(layout)
+	end, { noremap = true })
 end
 
-local function get_connections()
-	local res, err = vim.fn["SimpananGetConnections"]()
-	if err ~= nil then
-		util.print_red(err)
-		return
-	end
-
-	for _, r in ipairs(res) do
-		table.insert(M.conn, r)
-		M.conn_count = M.conn_count + 1
-	end
-end
-
-function M.list_connections()
-	local Popup = require("nui.popup")
-
-	if M.conn_count == 0 then
-		get_connections()
-	end
-
+local function newConnectionPopup()
 	local popup = Popup({
 		enter = true,
 		focusable = true,
@@ -47,12 +45,6 @@ function M.list_connections()
 				left = 3,
 				right = 3,
 			},
-		},
-		relative = "editor",
-		position = "50%",
-		size = {
-			width = "50%",
-			height = 10,
 		},
 		buf_options = {
 			modifiable = false,
@@ -71,18 +63,151 @@ function M.list_connections()
 	table.insert(menu, "a → [a]dd connection      d → [d]elete connection      q → exit")
 	vim.api.nvim_buf_set_lines(popup.bufnr, 0, M.conn_count, false, menu)
 
-	popup:mount()
+	return popup
+end
 
-	popup:on(event.BufLeave, function()
-		popup:unmount()
-	end)
+local function get_connections()
+	M.conn = {}
+	local res, err = vim.fn["SimpananGetConnections"]()
+	if err ~= nil then
+		util.print_red(err)
+		return
+	end
 
-	popup:map("n", "q", function()
-		popup:unmount()
-	end, {})
+	for _, r in ipairs(res) do
+		table.insert(M.conn, r)
+		M.conn_count = M.conn_count + 1
+	end
+end
 
-	-- TODO: add some nice CRUD
-	flush()
+function ShowAddConnectionPopup(layout)
+	layout:hide()
+	local popup_options = {
+		relative = "editor",
+		position = "50%",
+		size = {
+			width = "50%",
+			height = 1,
+		},
+		border = {
+			style = "rounded",
+			text = {
+				top = "[ Add Connection ]",
+				top_align = "left",
+			},
+		},
+	}
+
+	local input = Input(popup_options, {
+		on_submit = function(value)
+			if #value > 0 then
+				local _, err = vim.fn["SimpananAddConnection"](value)
+				if err ~= nil then
+					util.print_red(err)
+					return
+				else
+					get_connections()
+
+					local popup = newConnectionPopup()
+					AddPopupHooks(popup, layout)
+
+					layout:update(Layout.Box({
+						Layout.Box(popup, { size = "100%" }),
+					}))
+				end
+			end
+
+			layout:show()
+		end,
+	})
+
+	input:mount()
+
+	input:map("n", "<Esc>", function()
+		layout:unmount()
+		input:unmount()
+	end, { noremap = true })
+	input:map("n", "q", function()
+		layout:unmount()
+		input:unmount()
+	end, { noremap = true })
+end
+
+function ShowDeleteConnectionPopup(layout)
+	layout:hide()
+	local popup_options = {
+		relative = "editor",
+		position = "50%",
+		size = {
+			width = "50%",
+			height = 1,
+		},
+		border = {
+			style = "rounded",
+			text = {
+				top = "[ Delete Connection ]",
+				top_align = "left",
+			},
+		},
+	}
+
+	local input = Input(popup_options, {
+		on_submit = function(value)
+			if #value > 0 then
+				local _, err = vim.fn["SimpananDeleteConnection"](value)
+				if err ~= nil then
+					util.print_red(err)
+					return
+				else
+					get_connections()
+
+					local popup = newConnectionPopup()
+					AddPopupHooks(popup, layout)
+
+					layout:update(Layout.Box({
+						Layout.Box(popup, { size = "100%" }),
+					}))
+				end
+			end
+
+			layout:show()
+		end,
+	})
+
+	input:mount()
+
+	input:map("n", "<Esc>", function()
+		layout:unmount()
+		input:unmount()
+	end, { noremap = true })
+	input:map("n", "q", function()
+		layout:unmount()
+		input:unmount()
+	end, { noremap = true })
+end
+
+function M.list_connections()
+	if M.conn_count == 0 then
+		get_connections()
+	end
+
+	local popup = newConnectionPopup()
+	local layout = Layout(
+		{
+			relative = "editor",
+			position = "50%",
+			size = {
+				width = "50%",
+				height = "50%",
+			},
+		},
+		Layout.Box({
+			Layout.Box(popup, { size = "100%" }),
+		})
+	)
+
+	layout:mount()
+	AddPopupHooks(popup, layout)
 end
 
 function M.execute()

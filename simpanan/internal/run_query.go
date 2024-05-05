@@ -90,7 +90,7 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 	match := regexp.MustCompile(`^(.*?)>`).FindStringSubmatch(a)
 	conn := ""
 	if len(match) > 0 {
-		conn = strings.TrimLeft(match[1], " ")
+		conn = strings.TrimSpace(match[1])
 	}
 	v, ok := connMap[conn]
 	if !ok {
@@ -99,7 +99,7 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 
 	split := strings.Split(a, fmt.Sprintf("%s>", conn))
 
-	query := strings.TrimLeft(split[1], " ")
+	query := strings.TrimSpace(split[1])
 	if len(split) < 2 || len(query) == 0 {
 		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
 	}

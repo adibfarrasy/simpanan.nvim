@@ -47,7 +47,7 @@ func TestParseQuery(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := splitMethodParamStr(test.input)
+			res, err := splitCommaSeparatedObjStr(test.input)
 			assert.Equal(t, test.expectedResult, res)
 			assert.Equal(t, test.expectedError, err)
 		})

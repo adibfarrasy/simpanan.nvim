@@ -59,8 +59,8 @@ func parseCursorOpts(method method, cursorOptStr string) ([]cursorOpt, error) {
 		return []cursorOpt{}, nil
 	}
 	matches := regexp.MustCompile(`\.(.*?)\((.*?)\)`).FindAllStringSubmatch(cursorOptStr, -1)
-	if len(matches) < 2 {
-		return nil, fmt.Errorf("parseCursorOpts: invalid option length. method: %s, cursorOptStr: %s", string(method), cursorOptStr)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("parseCursorOpts: invalid option length. method: %s, cursorOptStr: %s, matches: %v", string(method), cursorOptStr, matches)
 	}
 	switch method {
 	case find:

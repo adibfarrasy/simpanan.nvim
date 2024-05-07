@@ -301,14 +301,16 @@ func constructBsonObject(objStr string) (any, error) {
 	if ok {
 		switch v.(type) {
 		case string:
-			// special handling for ObjectId type
-			replacer := strings.NewReplacer("'", "", "(", "", ")", "")
-			hex := replacer.Replace(strings.Split(fmt.Sprintf("%v", v), "ObjectId")[1])
-			id, err := primitive.ObjectIDFromHex(hex)
-			if err != nil {
-				return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), hex)
+			if strings.HasPrefix(v.(string), "ObjectId") {
+				// special handling for ObjectId type
+				replacer := strings.NewReplacer("'", "", "(", "", ")", "")
+				hex := replacer.Replace(strings.Split(fmt.Sprintf("%v", v), "ObjectId")[1])
+				id, err := primitive.ObjectIDFromHex(hex)
+				if err != nil {
+					return bson.D{}, fmt.Errorf("%s: %s.", err.Error(), hex)
+				}
+				resultMap["_id"] = id
 			}
-			resultMap["_id"] = id
 		}
 	}
 

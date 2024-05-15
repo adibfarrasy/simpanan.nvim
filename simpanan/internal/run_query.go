@@ -87,7 +87,7 @@ func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetad
 }
 
 func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, error) {
-	match := regexp.MustCompile(`^(.*?)>`).FindStringSubmatch(a)
+	match := regexp.MustCompile(`^(\S+?)>`).FindStringSubmatch(a)
 	conn := ""
 	if len(match) > 0 {
 		conn = strings.TrimSpace(match[1])
@@ -116,7 +116,7 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 }
 
 func hasConnArg(a string) bool {
-	return len(regexp.MustCompile(`^.*?>`).FindString(a)) > 0
+	return len(regexp.MustCompile(`^\S+?>`).FindString(a)) > 0
 }
 
 func sanitizeArgs(args []string) (res []string) {

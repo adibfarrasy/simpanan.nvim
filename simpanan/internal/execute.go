@@ -41,7 +41,7 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 		}
 
 	case common.Redis:
-		return nil, errors.New("Not implemented.")
+		return adapters.ExecuteRedisQuery(q)
 
 	case common.Jq:
 		return adapters.ExecuteJqQuery(q, previousResults)

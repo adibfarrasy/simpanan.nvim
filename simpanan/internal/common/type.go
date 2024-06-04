@@ -11,9 +11,9 @@ type (
 	ConnType      string
 	QueryType     string
 	QueryMetadata struct {
-		Conn      string
-		ConnType  ConnType
-		QueryLine string
+		Conn      string   `json:"conn"`
+		ConnType  ConnType `json:"conn_type"`
+		QueryLine string   `json:"query"`
 	}
 
 	ColumnValuePair struct {

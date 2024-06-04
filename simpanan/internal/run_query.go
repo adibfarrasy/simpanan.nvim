@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+type debugObj struct {
+	common.QueryMetadata
+	Result *any `json:"result"`
+}
+
 func HandleRunQuery(args []string) (string, error) {
 	// remove the :: prefix and :: separators
 	args = strings.Split(args[0], "::")[1:]
@@ -28,6 +33,8 @@ func HandleRunQuery(args []string) (string, error) {
 		return processError(err)
 	}
 
+	dbgRes := []debugObj{}
+
 	tmpRes := []byte{}
 	for i, q := range queries {
 		if i > 0 && len(tmpRes) == 0 {
@@ -39,9 +46,21 @@ func HandleRunQuery(args []string) (string, error) {
 			return processError(err)
 		}
 
+		if common.DebugMode {
+			var tmpRes any
+			err := json.Unmarshal(res, &tmpRes)
+			if err != nil {
+				return processError(err)
+			}
+			dbgRes = append(dbgRes, debugObj{q, &tmpRes})
+		}
+
 		tmpRes = res
 	}
 
+	if common.DebugMode {
+		return processPayloadDebug(dbgRes)
+	}
 	return processPayload(tmpRes)
 }
 
@@ -149,4 +168,24 @@ func processPayload(res []byte) (string, error) {
 
 func processError(err error) (string, error) {
 	return fmt.Sprintf("Error: %s", err.Error()), nil
+}
+
+func processPayloadDebug(dbgRes []debugObj) (string, error) {
+	var prettyJSON bytes.Buffer
+	prettyJSON.Write([]byte("// DEBUG MODE\n"))
+
+	if len(dbgRes) == 0 {
+		return "", nil
+	}
+
+	res, err := json.Marshal(dbgRes)
+	if err != nil {
+		return "", err
+	}
+
+	err = json.Indent(&prettyJSON, res, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(prettyJSON.Bytes()), nil
 }

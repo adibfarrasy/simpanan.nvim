@@ -217,8 +217,47 @@ func handleFindOne(ctx context.Context, coll *mongo.Collection, paramStrs ...*st
 }
 
 func handleAggregate(ctx context.Context, coll *mongo.Collection, paramStrs ...*string) ([]byte, error) {
-	// TODO: implement this
-	return nil, nil
+	params, err := splitCommaSeparatedObjStr(*paramStrs[0])
+	if err != nil {
+		return nil, err
+	}
+	f, err := constructBsonArray(params[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: handle opts
+	cursor, err := coll.Aggregate(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %v", err, f)
+	}
+	defer cursor.Close(ctx)
+
+	rowCount := 0
+
+	tmpRes := []map[string]any{}
+	for cursor.Next(ctx) {
+		if rowCount == common.MaxDocumentLimit {
+			break
+		}
+
+		var result map[string]any
+		if err := cursor.Decode(&result); err != nil {
+			return nil, err
+		}
+		tmpRes = append(tmpRes, result)
+		rowCount++
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+
+	res, err := json.Marshal(tmpRes)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %v.", err.Error(), tmpRes)
+	}
+	return res, nil
 }
 
 func handleCount(ctx context.Context, coll *mongo.Collection, paramStrs ...*string) ([]byte, error) {

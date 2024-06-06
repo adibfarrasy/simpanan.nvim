@@ -16,7 +16,9 @@ type debugObj struct {
 
 func HandleRunQuery(args []string) (string, error) {
 	// remove the :: prefix and :: separators
-	args = strings.Split(args[0], "::")[1:]
+	argsToRun := strings.Split(args[0], "::")[1:]
+	opts := strings.Split(args[1], "::")[1:]
+	common.SetConfig(opts)
 
 	conns, err := GetConnectionList()
 	if err != nil {
@@ -28,7 +30,7 @@ func HandleRunQuery(args []string) (string, error) {
 	// add special faux connection
 	connMap["jq"] = "jq://"
 
-	queries, err := parseQueries(args, connMap)
+	queries, err := parseQueries(argsToRun, connMap)
 	if err != nil {
 		return processError(err)
 	}
@@ -46,7 +48,7 @@ func HandleRunQuery(args []string) (string, error) {
 			return processError(err)
 		}
 
-		if common.DebugMode {
+		if common.GetConfig().DebugMode {
 			var tmpRes any
 			err := json.Unmarshal(res, &tmpRes)
 			if err != nil {
@@ -58,7 +60,7 @@ func HandleRunQuery(args []string) (string, error) {
 		tmpRes = res
 	}
 
-	if common.DebugMode {
+	if common.GetConfig().DebugMode {
 		return processPayloadDebug(dbgRes)
 	}
 	return processPayload(tmpRes)

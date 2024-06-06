@@ -42,7 +42,7 @@ func ExecutePostgresReadQuery(q common.QueryMetadata) ([]byte, error) {
 
 	var results [][]byte
 	for rows.Next() {
-		if rowCount == common.MaxDocumentLimit {
+		if rowCount == common.GetConfig().MaxRowLimit {
 			break
 		}
 

@@ -160,7 +160,7 @@ func handleFind(ctx context.Context, coll *mongo.Collection, paramStrs ...*strin
 
 	tmpRes := []map[string]any{}
 	for cursor.Next(ctx) {
-		if rowCount == common.MaxDocumentLimit {
+		if rowCount == common.GetConfig().MaxRowLimit {
 			break
 		}
 
@@ -237,7 +237,7 @@ func handleAggregate(ctx context.Context, coll *mongo.Collection, paramStrs ...*
 
 	tmpRes := []map[string]any{}
 	for cursor.Next(ctx) {
-		if rowCount == common.MaxDocumentLimit {
+		if rowCount == common.GetConfig().MaxRowLimit {
 			break
 		}
 

@@ -4,7 +4,13 @@ local Input = require("nui.input")
 
 local M = {}
 
+local default_opts = {
+	max_row_limit = 20,
+	debug_mode = false,
+}
+
 M.conn = {}
+M.opts = {}
 M.conn_count = 0
 M.execute_bufnr = nil
 
@@ -219,7 +225,11 @@ function M.execute()
 		end
 	end
 
-	local res, err = vim.fn["SimpananRunQuery"](req)
+	local opts = ""
+	for k, v in pairs(M.opts) do
+		opts = opts .. "::" .. k .. "=" .. tostring(v)
+	end
+	local res, err = vim.fn["SimpananRunQuery"](req, opts)
 	if err ~= nil then
 		util.print_red(err)
 		return
@@ -236,7 +246,8 @@ function M.execute()
 
 		split:mount()
 
-		vim.api.nvim_buf_set_option(split.bufnr, "filetype", "json")
+		-- vim.api.nvim_buf_set_option(split.bufnr, "filetype", "json")
+		vim.bo[split.bufnr].filetype = "json"
 
 		M.execute_bufnr = split.bufnr
 
@@ -253,6 +264,10 @@ function M.execute()
 	end
 
 	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", true)
+end
+
+function M.setup(opts)
+	M.opts = vim.tbl_deep_extend("force", default_opts, (opts or {}))
 end
 
 return M

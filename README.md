@@ -54,14 +54,6 @@ Grab a data from one database to another database. Useful if your project/s use 
 - List connections
 - Data pipelining
 
-## WIP
-These planned features will be supported in order:
-1. Manage connections (add/ delete) from the list_connections popup
-2. jq as 'faux connection' for intermediate data pipelining
-3. regex as 'faux connection' and data pipelining
-4. Support for redis query
-5. Support for MySQL and SQLite query
-
 ## FAQ
 - What's with the name?
     - It means 'storage' in Bahasa Indonesia (I'm Indonesian). I thought it's apt.

@@ -10,13 +10,33 @@ import (
 )
 
 func HandleAddConnection(args []string) (string, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
+		return "", fmt.Errorf("Empty connection input.")
+	}
 	newConn := args[0]
-	if newConn == "jq" {
-		return "", fmt.Errorf("New connection name cannot be 'jq'.")
+
+	c := strings.SplitN(newConn, ">", 2)
+	if len(c) < 2 {
+		return "", fmt.Errorf("Invalid connection syntax '%s'; expected 'label>uri'.", newConn)
 	}
 
-	if newConn[len(newConn)-1] == '>' {
-		return "", fmt.Errorf("Cannot use suffix character '>'.")
+	label := strings.TrimSpace(c[0])
+	uri := strings.TrimSpace(c[1])
+
+	if label == "" {
+		return "", fmt.Errorf("Empty connection label.")
+	}
+	if label == "jq" {
+		return "", fmt.Errorf("New connection name cannot be 'jq'.")
+	}
+	if strings.Contains(label, ">") {
+		return "", fmt.Errorf("Connection label cannot contain '>'.")
+	}
+	if uri == "" {
+		return "", fmt.Errorf("Empty connection uri.")
+	}
+	if _, err := common.URI(uri).ConnType(); err != nil {
+		return "", fmt.Errorf("Unrecognised uri scheme: '%s'.", uri)
 	}
 
 	conns, err := GetConnectionList()
@@ -24,16 +44,9 @@ func HandleAddConnection(args []string) (string, error) {
 		return "", err
 	}
 
-	c := strings.Split(newConn, ">")
-	if len(c) < 2 {
-		return "", fmt.Errorf("Invalid connection syntax '%s'", newConn)
-	}
-
-	label := strings.TrimSpace(c[0])
-	uri := strings.TrimSpace(c[1])
 	for _, conn := range conns {
 		if label == conn.Key {
-			return "", fmt.Errorf("Connection with name '%s' already exists.", c[0])
+			return "", fmt.Errorf("Connection with name '%s' already exists.", label)
 		}
 	}
 
@@ -48,6 +61,9 @@ func HandleAddConnection(args []string) (string, error) {
 	})
 
 	filePath := filepath.Join(homeDir, ".local/share/nvim/simpanan_connections.json")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return "", err
+	}
 	data, err := json.Marshal(conns)
 	if err != nil {
 		return "", err

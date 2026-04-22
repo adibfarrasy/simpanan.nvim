@@ -11,17 +11,8 @@ import (
 
 func PipeData(q *QueryMetadata, pipedData []byte) error {
 	var input any
-
-	var sliceRes []any
-	var mapRes map[string]any
-	if err := json.Unmarshal(pipedData, &sliceRes); err != nil {
-		if err := json.Unmarshal(pipedData, &mapRes); err != nil {
-			return err
-		} else {
-			input = mapRes
-		}
-	} else {
-		input = sliceRes
+	if err := json.Unmarshal(pipedData, &input); err != nil {
+		return fmt.Errorf("pipe data: previous result is not valid JSON: %w", err)
 	}
 
 	match := regexp.MustCompile(`\{\{([^{}]+)\}\}`).FindAllStringSubmatch(q.QueryLine, -1)

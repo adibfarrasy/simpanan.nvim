@@ -18,7 +18,7 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 	case common.Postgres:
 		switch adapters.QueryTypePostgres(q.QueryLine) {
 		case common.Read:
-			if q.QueryLine[0] == '\\' {
+			if len(q.QueryLine) > 0 && q.QueryLine[0] == '\\' {
 				// special postgres syntax, e.g. \dt, \d <table>, etc.
 				return adapters.ExecutePostgresAdminCmd(q)
 			} else {
@@ -26,6 +26,16 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 			}
 		case common.Write:
 			return adapters.ExecutePostgresWriteQuery(q)
+		default:
+			return nil, fmt.Errorf("Unknown query type: '%s'", q.QueryLine)
+		}
+
+	case common.Mysql:
+		switch adapters.QueryTypeMysql(q.QueryLine) {
+		case common.Read:
+			return adapters.ExecuteMysqlReadQuery(q)
+		case common.Write:
+			return adapters.ExecuteMysqlWriteQuery(q)
 		default:
 			return nil, fmt.Errorf("Unknown query type: '%s'", q.QueryLine)
 		}

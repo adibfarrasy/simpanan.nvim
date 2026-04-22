@@ -53,7 +53,7 @@ func ExecutePostgresReadQuery(q common.QueryMetadata) ([]byte, error) {
 		rowResults := common.RowData{}
 		for i, col := range values {
 			if col == nil {
-				rowResults = append(rowResults, common.ColumnValuePair{Key: columns[i], Value: "NULL"})
+				rowResults = append(rowResults, common.ColumnValuePair{Key: columns[i], Value: nil})
 			} else {
 				rowResults = append(rowResults, common.ColumnValuePair{Key: columns[i], Value: convertToType(col)})
 			}
@@ -85,19 +85,25 @@ func ExecutePostgresReadQuery(q common.QueryMetadata) ([]byte, error) {
 
 func convertToType(col sql.RawBytes) any {
 	colB := []byte(col)
-	floatValue, err := bytesToFloat64(colB)
-	if err == nil {
-		return floatValue
-	}
-	intValue, err := bytesToInt64(colB)
-	if err == nil {
+	s := string(colB)
+	// Try int before float so that integer-valued columns don't silently
+	// become float64 (which loses precision for bigint values above 2^53).
+	// A value like "1.5" will fail int parsing and fall through to float.
+	if intValue, err := bytesToInt64(colB); err == nil {
 		return intValue
 	}
-	boolValue, err := bytesToBool(colB)
-	if err == nil {
-		return boolValue
+	if floatValue, err := bytesToFloat64(colB); err == nil {
+		return floatValue
 	}
-	return string(colB)
+	// Only treat "true"/"false" as booleans. "0"/"1" are ambiguous
+	// with integer columns and are already handled above.
+	switch strings.ToLower(s) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return s
 }
 
 func bytesToInt64(b []byte) (int64, error) {
@@ -108,24 +114,17 @@ func bytesToFloat64(b []byte) (float64, error) {
 	return strconv.ParseFloat(string(b), 64)
 }
 
-func bytesToBool(b []byte) (bool, error) {
-	s := strings.ToLower(string(b))
-	switch s {
-	case "true", "1":
-		return true, nil
-	case "false", "0":
-		return false, nil
-	default:
-		return false, fmt.Errorf("invalid boolean value: %s", s)
-	}
-}
-
 func QueryTypePostgres(query string) common.QueryType {
-	action := strings.ToLower(strings.Split(query, " ")[0])
-	if action == "update" || action == "delete" || action == "insert" {
+	fields := strings.Fields(query)
+	if len(fields) == 0 {
+		return common.Read
+	}
+	switch strings.ToLower(fields[0]) {
+	case "insert", "update", "delete",
+		"create", "drop", "alter", "truncate",
+		"grant", "revoke", "comment":
 		return common.Write
 	}
-
 	return common.Read
 }
 
@@ -140,9 +139,13 @@ func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
 			return nil, fmt.Errorf("ExecutePostgresAdminCmd: invalid query format %s.", q.QueryLine)
 		}
 
-		tableName := matches[0][1]
+		tableName := strings.TrimSpace(matches[0][1])
+		if tableName == "" {
+			return nil, fmt.Errorf("ExecutePostgresAdminCmd: empty table name.")
+		}
+		escapedTable := strings.ReplaceAll(tableName, "'", "''")
 
-		q.QueryLine = fmt.Sprintf("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '%s'", tableName)
+		q.QueryLine = fmt.Sprintf("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '%s'", escapedTable)
 		colDef, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err
@@ -154,7 +157,7 @@ func ExecutePostgresAdminCmd(q common.QueryMetadata) ([]byte, error) {
 
 		q.QueryLine = fmt.Sprintf(`SELECT indexname, indexdef
 FROM pg_indexes
-WHERE tablename = '%s';`, tableName)
+WHERE tablename = '%s';`, escapedTable)
 		indices, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err
@@ -165,10 +168,10 @@ WHERE tablename = '%s';`, tableName)
 		}
 
 		q.QueryLine = fmt.Sprintf(`SELECT tc.constraint_name, tc.constraint_type, ccu.column_name
-FROM information_schema.table_constraints tc 
-JOIN information_schema.constraint_column_usage ccu 
-ON tc.constraint_name = ccu.constraint_name 
-WHERE tc.table_name = '%s';`, tableName)
+FROM information_schema.table_constraints tc
+JOIN information_schema.constraint_column_usage ccu
+ON tc.constraint_name = ccu.constraint_name
+WHERE tc.table_name = '%s';`, escapedTable)
 		constraints, err := ExecutePostgresReadQuery(q)
 		if err != nil {
 			return nil, err

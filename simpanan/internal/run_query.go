@@ -118,10 +118,12 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 		return common.QueryMetadata{}, fmt.Errorf("Connection key '%s' not found.", conn)
 	}
 
-	split := strings.Split(a, fmt.Sprintf("%s>", conn))
-
+	split := strings.SplitN(a, fmt.Sprintf("%s>", conn), 2)
+	if len(split) < 2 {
+		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
+	}
 	query := strings.TrimSpace(split[1])
-	if len(split) < 2 || len(query) == 0 {
+	if len(query) == 0 {
 		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
 	}
 

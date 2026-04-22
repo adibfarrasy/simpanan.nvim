@@ -16,6 +16,7 @@ M.execute_bufnr = nil
 
 local event = require("nui.utils.autocmd").event
 local util = require("simpanan.util")
+local simpanan_syntax = require("simpanan.syntax")
 
 function AddPopupHooks(popup, layout)
 	popup:on(event.BufLeave, function()
@@ -113,6 +114,7 @@ function ShowAddConnectionPopup(layout)
 					return
 				else
 					get_connections()
+					simpanan_syntax.refresh_all()
 
 					local popup = newConnectionPopup()
 					AddPopupHooks(popup, layout)
@@ -166,6 +168,7 @@ function ShowDeleteConnectionPopup(layout)
 					return
 				else
 					get_connections()
+					simpanan_syntax.refresh_all()
 
 					local popup = newConnectionPopup()
 					AddPopupHooks(popup, layout)

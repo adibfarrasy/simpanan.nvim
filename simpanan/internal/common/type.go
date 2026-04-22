@@ -25,6 +25,7 @@ type (
 
 var (
 	Postgres ConnType = "postgres"
+	Mysql    ConnType = "mysql"
 	Mongo    ConnType = "mongo"
 	Redis    ConnType = "redis"
 	Jq       ConnType = "jq"

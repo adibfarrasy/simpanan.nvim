@@ -42,3 +42,8 @@ luac.out
 simpanan/vendor/
 simpanan/simpanan
 simpanan/rplugin.vim
+
+# Counter global ~/.gitignore which excludes examples/ everywhere.
+# These files are user-facing documentation and must be tracked.
+!examples/
+!examples/**

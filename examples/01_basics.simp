@@ -1,0 +1,60 @@
+// ---------------------------------------------------------------------
+// 01 — Basics
+//
+// A .simp file is a sequence of query stages. Each stage begins with a
+// "connection label", followed by a `>`, followed by the query text to
+// run against that connection. Select the lines of a stage (or a whole
+// pipeline) in visual mode and run `:Simpanan execute` to execute.
+//
+// Lines starting with `//` are comments. They are stripped before
+// execution, so you can leave notes throughout.
+// ---------------------------------------------------------------------
+
+
+// A single SQL stage. The label "pg0" refers to whatever you registered
+// via `:Simpanan list_connections` + `a` — e.g. a postgres URI like
+// postgres://user:pass@localhost:5432/app
+pg0> SELECT id, name, created_at
+     FROM users
+     ORDER BY created_at DESC
+     LIMIT 5;
+
+
+// A query can span multiple lines. Every line that does NOT start with
+// a `<label>>` prefix is treated as a continuation of the previous
+// stage — useful for long SELECTs.
+pg0> SELECT u.id,
+            u.email,
+            count(o.id) AS order_count
+     FROM users u
+     LEFT JOIN orders o ON o.user_id = u.id
+     WHERE u.created_at > '2024-01-01'
+     GROUP BY u.id, u.email
+     ORDER BY order_count DESC
+     LIMIT 10;
+
+
+// Postgres admin shortcuts (backslash commands) are supported. They
+// look like the psql shell: `\dt` lists tables, `\d <table>` describes
+// a table's columns, indices, and constraints.
+pg0> \dt
+
+pg0> \d users
+
+
+// MongoDB stages use the standard shell syntax. The label here
+// ("mongo1") would resolve to a mongodb:// URI in your registry.
+mongo1> db.orders.find({status: "paid"}, {_id: 0, user_id: 1, total: 1})
+
+
+// Redis stages are plain RESP commands. Quoted arguments with spaces
+// are honoured by the tokenizer.
+cache> GET "user:42:profile"
+
+
+// MySQL works the same as Postgres for plain SQL. There is no
+// backslash-admin syntax — `SHOW TABLES` and `DESCRIBE t` are ordinary
+// read queries.
+my0> SHOW TABLES;
+
+my0> DESCRIBE users;

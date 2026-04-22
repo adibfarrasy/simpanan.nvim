@@ -12,15 +12,22 @@ func (kup KeyURIPair) String() string {
 }
 
 func (u URI) ConnType() (*ConnType, error) {
-	protocol := strings.Split(string(u), "://")[0]
-	switch {
-	case strings.Contains(protocol, "postgres"):
+	s := string(u)
+	idx := strings.Index(s, "://")
+	if idx < 0 {
+		return nil, errors.New("unknown connection type")
+	}
+	scheme := s[:idx]
+	switch scheme {
+	case "postgres", "postgresql":
 		return &Postgres, nil
-	case strings.Contains(protocol, "mongodb"):
+	case "mysql":
+		return &Mysql, nil
+	case "mongodb", "mongodb+srv":
 		return &Mongo, nil
-	case strings.Contains(protocol, "redis"):
+	case "redis", "rediss":
 		return &Redis, nil
-	case strings.Contains(protocol, "jq"):
+	case "jq":
 		return &Jq, nil
 	default:
 		return nil, errors.New("unknown connection type")

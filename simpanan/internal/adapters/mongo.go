@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"simpanan/internal/common"
 	"strings"
@@ -13,6 +14,25 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// mongoDBName extracts the database name from a MongoDB URI without
+// panicking on malformed or database-less URIs. The DB name is the first
+// path segment after the host (e.g., "mongodb://host:27017/mydb" -> "mydb").
+func mongoDBName(connURI string) (string, error) {
+	u, err := url.Parse(connURI)
+	if err != nil {
+		return "", fmt.Errorf("invalid mongo uri: %s", err)
+	}
+	db := strings.TrimPrefix(u.Path, "/")
+	if db == "" {
+		return "", fmt.Errorf("mongo uri does not include a database name")
+	}
+	// Strip any additional path segments (authSource options etc.) if present.
+	if idx := strings.Index(db, "/"); idx >= 0 {
+		db = db[:idx]
+	}
+	return db, nil
+}
 
 type (
 	method              string
@@ -78,7 +98,11 @@ func ExecuteMongoReadQuery(q common.QueryMetadata) ([]byte, error) {
 		return nil, err
 	}
 
-	db := client.Database(strings.Split(q.Conn, "/")[3])
+	dbName, err := mongoDBName(q.Conn)
+	if err != nil {
+		return nil, err
+	}
+	db := client.Database(dbName)
 
 	if strings.HasPrefix(q.QueryLine, "show") {
 		matches := regexp.MustCompile(`^show (.*)$`).FindAllStringSubmatch(q.QueryLine, -1)
@@ -105,10 +129,7 @@ func ExecuteMongoReadQuery(q common.QueryMetadata) ([]byte, error) {
 			return nil, fmt.Errorf("Read handler not found: %v.", matches[0][2])
 		}
 
-		cursorOptStr := ""
-		if len(matches[0]) == 5 {
-			cursorOptStr = matches[0][4]
-		}
+		cursorOptStr := matches[0][4]
 		return handler(ctx, coll, &matches[0][3], &cursorOptStr)
 	}
 }
@@ -414,7 +435,11 @@ func ExecuteMongoWriteQuery(q common.QueryMetadata) ([]byte, error) {
 		return nil, err
 	}
 
-	db := client.Database(strings.Split(q.Conn, "/")[3])
+	dbName, err := mongoDBName(q.Conn)
+	if err != nil {
+		return nil, err
+	}
+	db := client.Database(dbName)
 
 	matches := regexp.MustCompile(`db\.(.*?)\.(.*?)\((.*?)\)`).FindAllStringSubmatch(q.QueryLine, -1)
 
@@ -610,24 +635,52 @@ func splitCommaSeparatedObjStr(input string) (result []string, err error) {
 	}
 	stack := []rune{}
 	acc := []rune{}
+	inString := false
+	var stringDelim rune
+	escaped := false
 	for i, c := range input {
+		// Inside a JSON string literal: preserve every rune verbatim
+		// (including spaces) and do not treat structural characters
+		// as syntax.
+		if inString {
+			acc = append(acc, c)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == stringDelim {
+				inString = false
+			}
+			continue
+		}
+
+		// Outside a string: historical behaviour was to strip only
+		// the space character (newlines and tabs kept). Preserve that
+		// so existing callers and tests stay stable.
 		if c != ' ' {
 			acc = append(acc, c)
 		}
+
 		switch c {
+		case '"', '\'':
+			inString = true
+			stringDelim = c
 		case '{', '(', '[':
 			stack = append(stack, c)
 		case '}', ')', ']':
 			if len(stack) == 0 {
 				err = fmt.Errorf("invalid character at index %d", i)
 				return
-			} else {
-				if stack[len(stack)-1] != pairMap[c] {
-					err = fmt.Errorf("invalid parentheses at index %d", i)
-					return
-				}
-				stack = stack[:len(stack)-1]
 			}
+			if stack[len(stack)-1] != pairMap[c] {
+				err = fmt.Errorf("invalid parentheses at index %d", i)
+				return
+			}
+			stack = stack[:len(stack)-1]
 		case ',':
 			if len(stack) == 0 {
 				result = append(result, string(acc))
@@ -644,7 +697,7 @@ func splitCommaSeparatedObjStr(input string) (result []string, err error) {
 func handleShowCollections(ctx context.Context, db *mongo.Database, paramStrs ...*string) ([]byte, error) {
 	collections, err := db.ListCollectionNames(ctx, bson.D{})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %v.", err.Error(), collections)
+		return nil, fmt.Errorf("list collections: %s", err.Error())
 	}
 
 	return json.Marshal(collections)

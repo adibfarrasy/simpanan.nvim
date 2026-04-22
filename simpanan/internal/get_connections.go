@@ -29,7 +29,13 @@ func GetConnectionList() ([]common.KeyURIPair, error) {
 	filePath := filepath.Join(homeDir, ".local/share/nvim/simpanan_connections.json")
 	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []common.KeyURIPair{}, nil
+		}
 		return nil, err
+	}
+	if len(fileContent) == 0 {
+		return []common.KeyURIPair{}, nil
 	}
 
 	var keyUriPairs []common.KeyURIPair

@@ -84,6 +84,16 @@ func TestParseQuery(t *testing.T) {
 	}
 }
 
+// Regression: strings.Split split on every occurrence of "<conn>>",
+// so a query whose body happened to contain the same token again was
+// silently truncated. SplitN with n=2 preserves the full body.
+func TestParseQueryPreservesBodyContainingConnPrefix(t *testing.T) {
+	connMap := map[string]string{"pg0": "postgres://u:p@h/db"}
+	res, err := parseQuery("pg0> select 'pg0>' as literal", connMap)
+	assert.NoError(t, err)
+	assert.Equal(t, "select 'pg0>' as literal", res.QueryLine)
+}
+
 func TestParseQueries(t *testing.T) {
 	tests := []struct {
 		name           string

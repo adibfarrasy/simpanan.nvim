@@ -2,12 +2,16 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"simpanan/internal/common"
 )
 
 func HandleDeleteConnection(args []string) (string, error) {
+	if len(args) == 0 || len(args[0]) == 0 {
+		return "", fmt.Errorf("Empty connection label.")
+	}
 	toBeDeletedConn := args[0]
 
 	conns, err := GetConnectionList()
@@ -20,12 +24,18 @@ func HandleDeleteConnection(args []string) (string, error) {
 		return "", err
 	}
 
-	var newPairs []common.KeyURIPair
+	newPairs := []common.KeyURIPair{}
+	found := false
 	for _, conn := range conns {
-		// repopulate JSON
-		if conn.Key != toBeDeletedConn {
-			newPairs = append(newPairs, conn)
+		if conn.Key == toBeDeletedConn {
+			found = true
+			continue
 		}
+		newPairs = append(newPairs, conn)
+	}
+
+	if !found {
+		return "", fmt.Errorf("Connection with name '%s' does not exist.", toBeDeletedConn)
 	}
 
 	filePath := filepath.Join(homeDir, ".local/share/nvim/simpanan_connections.json")

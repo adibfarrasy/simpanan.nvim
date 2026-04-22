@@ -21,7 +21,10 @@ func GetConfig() *config {
 
 func SetConfig(opts []string) error {
 	for _, opt := range opts {
-		kv := strings.Split(opt, "=")
+		kv := strings.SplitN(opt, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
 		switch kv[0] {
 		case "max_row_limit":
 			v, err := strconv.Atoi(kv[1])

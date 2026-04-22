@@ -2,24 +2,20 @@ package adapters
 
 import (
 	"encoding/json"
+	"fmt"
 	"simpanan/internal/common"
 
 	"github.com/itchyny/gojq"
 )
 
 func ExecuteJqQuery(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
-	var input any
+	if len(previousResults) == 0 {
+		return nil, fmt.Errorf("jq stage: no input from previous stage")
+	}
 
-	var sliceRes []any
-	var mapRes map[string]any
-	if err := json.Unmarshal(previousResults, &sliceRes); err != nil {
-		if err := json.Unmarshal(previousResults, &mapRes); err != nil {
-			return nil, err
-		} else {
-			input = mapRes
-		}
-	} else {
-		input = sliceRes
+	var input any
+	if err := json.Unmarshal(previousResults, &input); err != nil {
+		return nil, fmt.Errorf("jq stage: previous result is not valid JSON: %w", err)
 	}
 
 	query, err := gojq.Parse(q.QueryLine)

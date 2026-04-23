@@ -1,0 +1,500 @@
+-- allium: 3
+-- webui.allium
+--
+-- Scope: Browser-based alternative client to the Neovim rplugin. A
+-- long-lived local server, the file/buffer state model it holds in
+-- memory, the connection-management popup, the execute-selection flow
+-- with a JSON result panel, live cross-tab buffer sync, and the
+-- autocomplete trigger model. Backend domain behaviour (connections,
+-- queries, autocomplete computation) is not redefined here; this spec
+-- layers on top of simpanan.allium.
+-- Includes:
+--   Webui server lifecycle (launch, single-instance enforcement, shutdown)
+--   Session and buffer state model (open files, active file, cursor
+--     positions, modified/saved status)
+--   Multi-tab live-broadcast synchronisation of buffer contents
+--   Connection-management popup with create/delete entry points
+--   Execute-selection flow rendered in a right-split JSON result panel
+--   Autocomplete trigger model: keystroke + trigger characters with
+--     a fixed debounce, delegating to the simpanan suggestion engine
+--   Session restore across server restarts via a recovery file
+-- Excludes:
+--   Choice of editor widget (CodeMirror, Monaco, ...)
+--   Wire protocol between browser and server (HTTP, WebSocket, SSE, ...)
+--   Recovery file format and on-disk location
+--   CSS, theming, button placement, keymap details
+--   Browser-side libraries and packaging
+--   All backend domain behaviour, which lives in simpanan.allium:
+--     connection registry mutations, query execution, schema cache,
+--     suggestion computation. This spec only invokes those entry points.
+--   Schema browser, query history, saved queries, result table view —
+--     all out of scope for parity with the Neovim plugin.
+--   Authentication and multi-user concerns: each teammate runs their
+--     own local server.
+-- Dependencies:
+--   simpanan.allium — references entity Connection and the rules
+--     AddConnection, DeleteConnection, ExecutePipeline, and the
+--     SuggestForBuffer entry point implicitly via the autocomplete
+--     surface. Wire-up is by trigger emission; this spec does not
+--     re-import those declarations.
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum WebuiServerStatus { starting | running | shutting_down }
+
+enum OpenFileStatus { clean | modified }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- A .simp file the user has opened in the webui. Backed by a real path
+-- on disk, but its in-memory contents may diverge from the disk
+-- contents until saved. Status is a derived flag (modified iff the
+-- buffer has diverged from disk); it has no independent lifecycle, but
+-- a transition graph is declared so live-broadcast and dirty-tracking
+-- rules can subscribe to it.
+entity OpenFile {
+    path: String
+    disk_contents: String           -- last-saved or last-loaded contents
+    buffer_contents: String         -- current in-memory edits
+    cursor_byte_offset: Integer
+    status: OpenFileStatus
+
+    -- No transition graph: neither clean nor modified is a true
+    -- lifecycle terminal — the entity is destroyed by CloseFile or
+    -- ShutdownWebui, not by reaching a final status. The status field
+    -- toggles freely between clean and modified driven by EditBuffer
+    -- and SaveFile; the ModifiedReflectsDivergence invariant pins
+    -- down its meaning.
+}
+
+-- The long-lived webui process. At most one exists per machine (see
+-- SingleWebuiInstance). Holds the session: which files are open, which
+-- one is currently focused, and the server's lifecycle status.
+entity WebuiServer {
+    status: WebuiServerStatus
+    port: Integer
+    open_files: Set<OpenFile>
+    active_file: OpenFile?
+
+    transitions status {
+        starting -> running
+        running -> shutting_down
+        terminal: shutting_down
+    }
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- 7467 = SIMP on a phone keypad. Picked for memorability; not
+    -- otherwise meaningful.
+    webui_port: Integer = 7467
+
+    -- How long after the most recent keystroke or trigger character
+    -- the webui waits before requesting suggestions. Earlier in-flight
+    -- requests are cancelled by the debounce.
+    autocomplete_debounce: Duration = 80.milliseconds
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- ---- Server lifecycle ----
+
+rule LaunchWebui {
+    when: WebuiLaunchRequested()
+
+    requires: not exists WebuiServer{port: config.webui_port}
+    requires: not port_in_use(config.webui_port)
+
+    ensures: WebuiServer.created(
+        status: starting,
+        port: config.webui_port,
+        open_files: {},
+        active_file: null
+    )
+
+    @guidance
+        -- Hostile-fail by design. If the port is already bound — by
+        -- another simpanan webui instance, or by an unrelated process —
+        -- the launch is rejected via the requires guard and the caller
+        -- receives WebuiServerLaunchAborted (see LaunchAborted below).
+        -- We deliberately do not auto-pick an alternative port: the
+        -- chosen port is part of the user-visible URL and changing it
+        -- silently would surprise users.
+        --
+        -- port_in_use is a black-box accessor over OS state.
+}
+
+rule LaunchAborted {
+    when: WebuiLaunchRequested()
+
+    requires: exists WebuiServer{port: config.webui_port}
+        or port_in_use(config.webui_port)
+
+    ensures: WebuiServerLaunchAborted(reason: "port already in use")
+}
+
+rule BecomeRunning {
+    when: server: WebuiServer.status transitions_to running
+
+    ensures: WebuiServerReachable(
+        url: "http://localhost:" + server.port
+    )
+    ensures: WebuiUrlPrintedToTerminal(
+        url: "http://localhost:" + server.port
+    )
+
+    @guidance
+        -- Two domain obligations are emitted here, modelled as
+        -- helper-named-as-trigger events because Allium has no
+        -- first-class "the server is reachable" or "this string was
+        -- printed to a terminal" predicate. They name observable
+        -- behaviour the user (or a teammate watching them) can verify:
+        -- the URL works in a browser, and the URL appeared in the
+        -- terminal that launched the webui.
+}
+
+rule RestoreSession {
+    when: server: WebuiServer.status transitions_to running
+
+    requires: recovery_file_exists()
+
+    ensures:
+        for entry in recovery_file_entries():
+            OpenFile.created(
+                path: entry.path,
+                disk_contents: read_disk_contents(entry.path),
+                buffer_contents: entry.buffer_contents,
+                cursor_byte_offset: entry.cursor_byte_offset,
+                status:
+                    if entry.buffer_contents = read_disk_contents(entry.path):
+                        clean
+                    else:
+                        modified
+            )
+        server.open_files = restored_open_files()
+        server.active_file = restored_active_file()
+
+    @guidance
+        -- recovery_file_exists, recovery_file_entries,
+        -- read_disk_contents, restored_open_files and
+        -- restored_active_file are black-box accessors. The recovery
+        -- file's format and location are out of scope (see Excludes).
+        --
+        -- When no recovery file is present, the rule does not fire and
+        -- the server starts with an empty session — that is the
+        -- correct behaviour, not a bug to guard against.
+        --
+        -- If the on-disk .simp file referenced by a recovery entry has
+        -- been deleted between sessions, read_disk_contents returns
+        -- the empty string and the file is restored as modified
+        -- (buffer_contents != ""). The user can then save to recreate
+        -- the file, or close it to discard.
+}
+
+rule ShutdownWebui {
+    when: ShutdownRequested()
+
+    let server = WebuiServer{status: running}
+    requires: exists server
+
+    ensures: server.status = shutting_down
+    ensures: RecoveryFileFlushed(
+        files: server.open_files,
+        active: server.active_file
+    )
+    ensures: WebuiServerExited()
+
+    @guidance
+        -- All open files have their state captured to the recovery
+        -- file regardless of clean/modified status — the recovery
+        -- file is the session's persistent home for unsaved buffer
+        -- contents, not just a crash safety net. See Open Question 2
+        -- on whether modified files should ever surface a confirmation
+        -- prompt instead.
+}
+
+-- ---- File operations ----
+
+rule OpenFileInWebui {
+    when: OpenFileRequested(path)
+
+    requires: path.ends_with(".simp")
+    requires: file_exists_on_disk(path)
+    requires: not exists OpenFile{path: path}
+
+    let contents = read_disk_contents(path)
+
+    ensures: OpenFile.created(
+        path: path,
+        disk_contents: contents,
+        buffer_contents: contents,
+        cursor_byte_offset: 0,
+        status: clean
+    )
+
+    @guidance
+        -- Reopening an already-open file is a no-op rather than an
+        -- error: the requires guard blocks the second OpenFile
+        -- creation. The webui is expected to instead route the request
+        -- to SwitchActiveFile on the existing OpenFile.
+}
+
+rule OpenFileRejected {
+    when: OpenFileRequested(path)
+
+    requires: not path.ends_with(".simp")
+        or not file_exists_on_disk(path)
+
+    ensures: OpenFileRejected(
+        path: path,
+        reason:
+            if not path.ends_with(".simp"):
+                "not a .simp file"
+            else:
+                "file does not exist"
+    )
+}
+
+rule CloseFile {
+    when: CloseFileRequested(path)
+
+    let target = OpenFile{path: path}
+    requires: exists target
+
+    ensures: not exists target
+
+    @guidance
+        -- Closing a modified file does not prompt. Buffer state stays
+        -- in the recovery file until shutdown (see ShutdownWebui), and
+        -- the on-disk .simp is left at its last-saved contents. The
+        -- design treats the server's recovery file as the source of
+        -- truth for in-flight session state and the .simp file on disk
+        -- as the source of truth for explicitly-saved content. See
+        -- Open Question 2.
+}
+
+rule SaveFile {
+    when: SaveFileRequested(path)
+
+    let target = OpenFile{path: path}
+    requires: exists target
+
+    ensures: WriteToDiskRequested(
+        path: target.path,
+        contents: target.buffer_contents
+    )
+    ensures: target.disk_contents = target.buffer_contents
+    ensures: target.status = clean
+
+    @guidance
+        -- The clean transition is implied by disk_contents now equal
+        -- to buffer_contents (see the ModifiedReflectsDivergence
+        -- invariant), but is asserted explicitly so the
+        -- transitions_to subscribers (notably BroadcastBufferToTabs is
+        -- not one of them, but future ones may be) see the state
+        -- change cleanly.
+}
+
+rule EditBuffer {
+    when: BufferEditApplied(path, new_buffer_contents, new_cursor)
+
+    let target = OpenFile{path: path}
+    requires: exists target
+
+    ensures: target.buffer_contents = new_buffer_contents
+    ensures: target.cursor_byte_offset = new_cursor
+    ensures:
+        if new_buffer_contents != target.disk_contents:
+            target.status = modified
+        else:
+            target.status = clean
+    ensures: BufferBroadcastToTabs(
+        path: target.path,
+        contents: new_buffer_contents,
+        cursor_byte_offset: new_cursor
+    )
+
+    @guidance
+        -- Live-broadcast last-write-wins. The broadcast emission is
+        -- inlined here (rather than being its own rule subscribing to
+        -- a "buffer_contents changes" trigger, which Allium does not
+        -- model) so that every accepted edit produces exactly one
+        -- broadcast.
+        --
+        -- Browser tabs viewing this file are notified of every buffer
+        -- change; the most recent emission wins on a slower tab. Tabs
+        -- are not modelled as entities because they are an
+        -- implementation detail of the wire protocol (see Excludes),
+        -- but the broadcast obligation itself is domain-level: two
+        -- open tabs on the same file must not show divergent text for
+        -- longer than network latency.
+        --
+        -- The initial buffer set by OpenFileInWebui and RestoreSession
+        -- is not broadcast: those flows establish state for tabs that
+        -- have not yet connected (or that are about to connect and
+        -- will fetch the current buffer themselves).
+}
+
+rule SwitchActiveFile {
+    when: ActiveFileSwitched(path)
+
+    let server = WebuiServer{status: running}
+    let target = OpenFile{path: path}
+    requires: exists server
+    requires: exists target
+    requires: target in server.open_files
+
+    ensures: server.active_file = target
+}
+
+-- ---- Execute selection ----
+
+rule ExecuteSelection {
+    when: ExecuteSelectionRequested(path, selected_text)
+
+    requires: exists OpenFile{path: path}
+    requires: selected_text.length > 0
+
+    ensures: ExecutePipeline(stage_specs: parse_stage_specs(selected_text))
+    ensures: JsonResultPanelOpened(path: path)
+
+    @guidance
+        -- No auto-detection of stages: the user must make an explicit
+        -- selection. Empty selection is rejected (see Open Question 4
+        -- in simpanan.allium for related context on stage parsing).
+        --
+        -- The downstream ExecutePipeline rule lives in simpanan.allium
+        -- and owns all backend behaviour: routing, schema introspection,
+        -- jq transformation. The webui is a pure presentation layer
+        -- here. The final PipelineExecution.final_result is rendered
+        -- in the right-split JSON panel; the rendering is treated as
+        -- an implementation concern of the panel (see Excludes:
+        -- editor widget, CSS, theming).
+}
+
+-- ---- Connections popup ----
+
+rule OpenConnectionsPopup {
+    when: ConnectionsPopupRequested()
+
+    ensures: ConnectionsPopupShown()
+
+    @guidance
+        -- The popup lists the current Connection registry (the
+        -- backend rule ListConnections from simpanan.allium supplies
+        -- the data) and exposes Add and Delete entry points that emit
+        -- the AddConnection and DeleteConnection triggers defined
+        -- there. Edit-in-place is intentionally out of scope: the
+        -- workflow is delete + re-add, matching the Neovim plugin.
+}
+
+-- ---- Autocomplete ----
+
+rule RequestSuggestions {
+    when: AutocompleteTriggered(path, kind)
+
+    let server = WebuiServer{status: running}
+    let target = OpenFile{path: path}
+    requires: exists server
+    requires: server.active_file = target
+    requires: kind in { keystroke, trigger_character }
+
+    ensures: SuggestionsRequestScheduled(
+        path: target.path,
+        buffer_contents: target.buffer_contents,
+        cursor_byte_offset: target.cursor_byte_offset,
+        delay: config.autocomplete_debounce
+    )
+
+    @guidance
+        -- The webui fires AutocompleteTriggered on every keystroke in
+        -- the active file and on the trigger characters '.', '{',
+        -- '>', '$'. The "kind" parameter distinguishes the two so the
+        -- caller can record analytics; the response is the same in
+        -- both cases.
+        --
+        -- After the debounce, the webui invokes SuggestForBuffer (the
+        -- existing entry point in simpanan.allium) with the captured
+        -- buffer contents and cursor offset, and renders the returned
+        -- suggestions at the cursor. Earlier in-flight requests are
+        -- cancelled by the debounce: only the most recent
+        -- SuggestionsRequestScheduled emission must result in a
+        -- request actually reaching the backend.
+        --
+        -- Modelled as a helper-named-as-trigger because Allium has no
+        -- first-class debounce primitive. The "delay" parameter
+        -- carries the debounce duration to the implementation; the
+        -- cancellation discipline lives in @guidance because the spec
+        -- has no way to assert it.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant SingleWebuiInstance {
+    -- At most one WebuiServer exists per machine. Enforced at launch
+    -- via port binding (the OS rejects a second bind to the same
+    -- port); modelled at the domain level as a global cardinality
+    -- constraint.
+    WebuiServers.count <= 1
+}
+
+invariant ActiveFileIsOpen {
+    -- If a server has a focused file, it must be one of the open files.
+    WebuiServers.all(s =>
+        s.active_file = null or s.active_file in s.open_files)
+}
+
+invariant RejectNonSimpFiles {
+    -- Every open file is a .simp file. OpenFileInWebui enforces this
+    -- on creation; this invariant guards against any other code path
+    -- producing a non-conforming OpenFile.
+    OpenFiles.all(f => f.path.ends_with(".simp"))
+}
+
+invariant ModifiedReflectsDivergence {
+    -- Status accurately reflects whether the buffer has diverged from
+    -- disk. Equivalently: a clean file's buffer matches its disk copy,
+    -- and a modified file's does not.
+    OpenFiles.all(f =>
+        (f.status = clean) implies (f.buffer_contents = f.disk_contents))
+    OpenFiles.all(f =>
+        (f.status = modified) implies (f.buffer_contents != f.disk_contents))
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+-- 1. Should the recovery file be encrypted at rest? Current answer:
+--    no. The trust model is single-user-localhost: the recovery file
+--    sits in the user's home directory under the same protections as
+--    their .simp files and shell history. If the threat model
+--    expands (shared developer workstations, recovery file synced to
+--    cloud storage), this answer needs to change.
+--
+-- 2. Should closing a tab with unsaved changes ever surface a
+--    confirmation prompt? Current answer: no — silent close, with
+--    state retained in the recovery file until shutdown. The
+--    rationale is that the user trusts the server to hold their
+--    in-flight buffers, so the prompt would be noise. The risk is
+--    that a user closing the last tab on a modified file may believe
+--    the changes are gone; the recovery-on-shutdown promise covers
+--    them, but the discoverability of that promise is weak.
+--
+-- 3. Should the webui auto-launch the user's default browser on
+--    BecomeRunning, or just print the URL and let the user open it?
+--    Current answer: just print. Auto-launching has poor behaviour
+--    over SSH, in headless containers and on machines with multiple
+--    browser profiles, all of which are realistic developer
+--    environments.

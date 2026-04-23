@@ -1,0 +1,764 @@
+-- allium: 3
+-- simpanan.allium
+--
+-- Scope: Polyglot query runner — connection registry, query pipeline
+-- execution, and editor-facing autocompletion.
+-- Includes:
+--   Connection registry (add, list, delete)
+--   Query execution (single stage and piped multi-stage)
+--   Connection-type routing (postgres, mongo, redis) and the built-in jq transformer
+--   Data injection between pipeline stages via jq placeholders
+--   Schema introspection cache per connection
+--   Static built-in completion catalog per connection type
+--   Completion suggestions computed from parser context, schema cache,
+--     catalog, and (for jq placeholders) on-demand prior-stage probing
+-- Excludes:
+--   Editor UI (NUI popups, buffer rendering, visual-selection parsing)
+--   Nvim RPC plumbing
+--   Persistence format of the connection registry (JSON file on disk)
+--   Database-dialect parsing inside individual adapters (SQL/BSON)
+--   Wire protocols to backing databases
+--   Debug and row-limit configuration flags (observability concerns)
+--   Editor integration for completion (cmp source, omnifunc, LSP, ...)
+--   Persistence format/location of the schema cache on disk
+--   The specific parser grammar used to classify cursor context
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum ConnectionType { postgres | mysql | mongo | redis | jq }
+
+enum QueryOperation { read | write | admin }
+
+-- The classified cursor position at a completion request site.
+-- Treated as the output of a black-box parser over buffer text; the
+-- spec names the shapes but not the grammar.
+enum CompletionContext {
+    stage_start                 -- before any '>' on the current stage
+    sql_table_expected          -- after FROM / INSERT INTO / UPDATE / DELETE FROM
+    sql_column_expected         -- after WHERE, JOIN ... ON, or after "alias."
+    sql_keyword_prefix          -- partially-typed identifier where SQL keywords are legal
+    mongo_database_expected     -- after "db."
+    mongo_collection_expected   -- after "db.<db>."
+    mongo_operation_expected    -- after "db.<db>.<coll>."
+    mongo_field_expected        -- inside a field-name position of a Mongo operator
+    redis_command_prefix        -- partially-typed identifier at a Redis command head
+    jq_placeholder              -- inside {{...}} in a non-first stage
+    unknown
+}
+
+-- What a single suggestion represents.
+enum SuggestionKind {
+    connection_label
+    sql_keyword
+    database
+    table
+    column
+    mongo_collection
+    mongo_operation
+    mongo_operator
+    mongo_field
+    redis_command
+    jq_operator
+    jq_path
+}
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+-- One item offered to the editor at a completion site.
+value Suggestion {
+    text: String
+    kind: SuggestionKind
+}
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- A user-registered database endpoint. Identified by its label.
+entity Connection {
+    label: String
+    uri: String
+    connection_type: ConnectionType
+}
+
+-- One stage of a pipeline execution. Stages are created as an ordered
+-- group by PipelineExecution and retired when the pipeline completes.
+entity QueryStage {
+    pipeline: PipelineExecution
+    index: Integer                  -- 0-based position within the pipeline
+    connection_label: String        -- resolves to a Connection or the "jq" transformer
+    query_text: String
+    operation: QueryOperation
+    status: running | completed | failed
+    result_json: String when status = completed | failed
+
+    transitions status {
+        running -> completed
+        running -> failed
+        terminal: completed, failed
+    }
+}
+
+-- A user-initiated run of a (possibly multi-stage) query selection.
+entity PipelineExecution {
+    status: running | completed | failed
+
+    stages: QueryStage with pipeline = this
+    final_result: String when status = completed
+
+    transitions status {
+        running -> completed
+        running -> failed
+        terminal: completed, failed
+    }
+}
+
+-- ---- Schema cache ----
+
+-- Introspected shape of a non-Redis, non-jq Connection. At most one per
+-- eligible Connection, keyed by connection_label. Populated lazily and
+-- refreshed on a schedule; mutated in place by refresh rules.
+entity SchemaCache {
+    connection_label: String
+    populated_at: Timestamp?           -- null before first successful populate
+    last_refresh_attempt: Timestamp?
+    databases: Set<DatabaseSchema>
+}
+
+-- One logical database inside a SchemaCache. For SQL backends it
+-- contains tables; for Mongo it contains collections. The two field
+-- sets are disjoint in practice (a database belongs to one backend
+-- type) and either may be empty.
+entity DatabaseSchema {
+    cache: SchemaCache
+    name: String
+    tables: Set<TableSchema>           -- populated for SQL caches
+    collections: Set<CollectionSchema> -- populated for Mongo caches
+}
+
+entity TableSchema {
+    database: DatabaseSchema
+    name: String
+    columns: Set<String>
+}
+
+-- Observed field names for a Mongo collection. Collected by sampling
+-- or $collStats; treated as a black box — the spec does not define
+-- how the set is produced, only that it reflects the currently known
+-- field names at the time of the last populate.
+entity CollectionSchema {
+    database: DatabaseSchema
+    name: String
+    fields: Set<String>
+}
+
+-- ---- Built-in completion catalog ----
+
+-- A passive lookup of statically known identifiers for a given
+-- connection type. One default instance per type (see Defaults). The
+-- catalog is read by ComputeSuggestions; it has no lifecycle.
+entity BuiltinCatalog {
+    connection_type: ConnectionType
+    sql_keywords: Set<String>
+    redis_commands: Set<String>
+    mongo_aggregation_operators: Set<String>
+    mongo_collection_operations: Set<String>
+    jq_operators: Set<String>
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    schema_refresh_interval: Duration = 1.hour
+    jq_path_probe_timeout: Duration = 2.seconds
+}
+
+------------------------------------------------------------
+-- Defaults
+------------------------------------------------------------
+
+-- One catalog instance per connection type. Redis and jq use the
+-- relevant subset of fields; irrelevant fields are left empty. These
+-- literals are indicative: the full lists live in the implementation
+-- and are treated as a black box by the spec.
+
+default BuiltinCatalog postgres_catalog = {
+    connection_type: postgres,
+    sql_keywords: { "SELECT", "FROM", "WHERE", "JOIN", "ON", "GROUP", "BY",
+                    "ORDER", "LIMIT", "INSERT", "INTO", "VALUES", "UPDATE",
+                    "SET", "DELETE" },
+    redis_commands: {},
+    mongo_aggregation_operators: {},
+    mongo_collection_operations: {},
+    jq_operators: {}
+}
+
+default BuiltinCatalog mysql_catalog = {
+    connection_type: mysql,
+    sql_keywords: { "SELECT", "FROM", "WHERE", "JOIN", "ON", "GROUP", "BY",
+                    "ORDER", "LIMIT", "INSERT", "INTO", "VALUES", "UPDATE",
+                    "SET", "DELETE", "SHOW", "DESCRIBE" },
+    redis_commands: {},
+    mongo_aggregation_operators: {},
+    mongo_collection_operations: {},
+    jq_operators: {}
+}
+
+default BuiltinCatalog mongo_catalog = {
+    connection_type: mongo,
+    sql_keywords: {},
+    redis_commands: {},
+    mongo_aggregation_operators: { "$match", "$group", "$project", "$lookup",
+                                   "$sort", "$limit", "$unwind", "$skip",
+                                   "$count", "$addFields" },
+    mongo_collection_operations: { "find", "findOne", "aggregate", "distinct",
+                                   "count", "estimatedDocumentCount",
+                                   "insertOne", "insertMany",
+                                   "updateOne", "updateMany",
+                                   "deleteOne", "deleteMany" },
+    jq_operators: {}
+}
+
+default BuiltinCatalog redis_catalog = {
+    connection_type: redis,
+    sql_keywords: {},
+    redis_commands: { "GET", "SET", "DEL", "KEYS", "EXISTS", "EXPIRE", "TTL",
+                      "HGET", "HSET", "HGETALL", "LPUSH", "RPUSH", "LRANGE",
+                      "SADD", "SMEMBERS", "INCR", "DECR" },
+    mongo_aggregation_operators: {},
+    mongo_collection_operations: {},
+    jq_operators: {}
+}
+
+default BuiltinCatalog jq_catalog = {
+    connection_type: jq,
+    sql_keywords: {},
+    redis_commands: {},
+    mongo_aggregation_operators: {},
+    mongo_collection_operations: {},
+    jq_operators: { ".", "|", "select", "map", "length", "keys", "values",
+                    "to_entries", "from_entries", "group_by", "sort_by",
+                    "unique", "add", "type" }
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- ---- Connection registry ----
+
+rule AddConnection {
+    when: AddConnection(label, uri)
+
+    requires: label != "jq"
+    requires: not label.contains(">")
+    requires: not exists Connection{label: label}
+    requires: uri.has_recognised_scheme
+
+    ensures: Connection.created(
+        label: label,
+        uri: uri,
+        connection_type: uri.derived_connection_type
+    )
+
+    @guidance
+        -- The label "jq" is reserved for the built-in transformer and
+        -- must not be shadowed by a user-registered connection. The
+        -- character ">" separates a connection label from its query
+        -- text in the pipeline parser, so it cannot appear in labels.
+}
+
+rule DeleteConnection {
+    when: DeleteConnection(label)
+
+    let target = Connection{label: label}
+    requires: exists target
+
+    ensures: not exists target
+}
+
+rule ListConnections {
+    when: ListConnections()
+    ensures: ConnectionsListed(connections: Connections)
+}
+
+-- ---- Pipeline execution ----
+
+-- A pipeline is a non-empty, ordered sequence of stages. Each stage names
+-- an existing connection by label (or the reserved "jq") and carries raw
+-- query text. Stages execute sequentially; each non-first stage receives
+-- the prior stage's JSON result as input. Stages are materialised
+-- lazily: the first stage on pipeline start, then each successor after
+-- its predecessor completes.
+rule StartPipelineExecution {
+    when: ExecutePipeline(stage_specs)
+
+    requires: stage_specs.count >= 1
+    requires:
+        stage_specs.all(s =>
+            s.connection_label = "jq"
+            or exists Connection{label: s.connection_label})
+
+    -- Enforce ChainedStagesAreReadOnly up front: only the last spec
+    -- may be write or admin; all earlier specs must be read.
+    requires:
+        stage_specs.all(s =>
+            s = stage_specs.last
+            or s.operation = read)
+
+    ensures: PipelineExecution.created(
+        status: running,
+        pending_specs: stage_specs
+    )
+    ensures: QueryStage.created(
+        pipeline: this_pipeline,
+        index: 0,
+        connection_label: stage_specs.first.connection_label,
+        query_text: stage_specs.first.query_text,
+        operation: stage_specs.first.operation,
+        status: running
+    )
+}
+
+rule RunStage {
+    when: stage: QueryStage.created
+
+    ensures:
+        -- jq stages transform the prior stage's JSON result.
+        -- Non-jq stages delegate to an adapter; if there is a prior
+        -- stage, placeholders of the form {{<jq-expression>}} in
+        -- the stage's query_text are substituted against the prior
+        -- result before the adapter runs.
+        if stage.connection_label = "jq":
+            JqTransformationRequested(stage: stage)
+        else:
+            AdapterInvocationRequested(stage: stage)
+}
+
+rule AdvanceToNextStage {
+    when: stage: QueryStage.status transitions_to completed
+
+    requires: exists stage.pipeline.next_spec_after(stage)
+
+    let next_spec = stage.pipeline.next_spec_after(stage)
+
+    ensures: QueryStage.created(
+        pipeline: stage.pipeline,
+        index: stage.index + 1,
+        connection_label: next_spec.connection_label,
+        query_text: next_spec.query_text,
+        operation: next_spec.operation,
+        status: running
+    )
+}
+
+rule CompletePipeline {
+    when: stage: QueryStage.status transitions_to completed
+
+    requires: not exists stage.pipeline.next_spec_after(stage)
+
+    ensures: stage.pipeline.status = completed
+    ensures: stage.pipeline.final_result = stage.result_json
+}
+
+rule FailPipeline {
+    when: stage: QueryStage.status transitions_to failed
+
+    ensures: stage.pipeline.status = failed
+}
+
+-- ---- Adapter routing ----
+
+-- Operation classification is derived from the query text by each
+-- adapter. The spec fixes which operation classes each backend supports;
+-- the specific syntax used to detect them is an adapter implementation
+-- detail.
+
+rule RoutePostgres {
+    when: AdapterInvocationRequested(stage)
+
+    requires: Connection{label: stage.connection_label}.connection_type = postgres
+    requires: stage.operation in { read, write, admin }
+
+    ensures:
+        if stage.operation = read:
+            PostgresReadRequested(stage: stage)
+        if stage.operation = write:
+            PostgresWriteRequested(stage: stage)
+        if stage.operation = admin:
+            -- Admin commands use the leading-backslash syntax
+            -- (e.g. list tables, describe table).
+            PostgresAdminRequested(stage: stage)
+}
+
+rule RouteMysql {
+    when: AdapterInvocationRequested(stage)
+
+    requires: Connection{label: stage.connection_label}.connection_type = mysql
+    requires: stage.operation in { read, write }
+
+    ensures:
+        if stage.operation = read:
+            -- SELECT and metadata queries (SHOW TABLES, DESCRIBE, ...)
+            -- are all treated as read: they are ordinary SQL and the
+            -- adapter does not distinguish them.
+            MysqlReadExecuted(stage: stage)
+        if stage.operation = write:
+            MysqlWriteExecuted(stage: stage)
+}
+
+rule RouteMongo {
+    when: AdapterInvocationRequested(stage)
+
+    requires: Connection{label: stage.connection_label}.connection_type = mongo
+    requires: stage.operation in { read, write }
+
+    ensures:
+        if stage.operation = read:
+            -- find, findOne, aggregate, distinct, count, estimatedDocumentCount
+            MongoReadRequested(stage: stage)
+        if stage.operation = write:
+            -- insertOne/Many, updateOne/Many, deleteOne/Many, show collections
+            MongoWriteRequested(stage: stage)
+}
+
+rule RouteRedis {
+    when: AdapterInvocationRequested(stage)
+
+    requires: Connection{label: stage.connection_label}.connection_type = redis
+    requires: stage.operation in { read, write }
+
+    ensures:
+        if stage.operation = read:
+            -- GET, HGET, LRANGE, SMEMBERS, ZRANGE, KEYS, SCAN, TTL,
+            -- EXISTS, TYPE and other inspection commands.
+            RedisReadRequested(stage: stage)
+        if stage.operation = write:
+            -- SET, DEL, HSET, LPUSH, SADD, ZADD, EXPIRE, FLUSHDB and
+            -- other state-changing commands.
+            RedisWriteRequested(stage: stage)
+}
+
+-- ---- Schema cache lifecycle ----
+
+-- A Connection is "eligible" for a schema cache iff its type is
+-- postgres, mysql or mongo. Redis and jq have no introspectable
+-- schema and never own a SchemaCache (see NoSchemaCacheForRedisOrJq).
+
+rule LoadCachesOnStartup {
+    when: PluginStarted()
+
+    ensures:
+        for c in Connections where connection_type in { postgres, mysql, mongo }:
+            if persisted_cache_exists(c.label)
+               and now - persisted_cache_populated_at(c.label) < config.schema_refresh_interval:
+                SchemaCache.created(
+                    connection_label: c.label,
+                    populated_at: persisted_cache_populated_at(c.label),
+                    last_refresh_attempt: null,
+                    databases: persisted_cache_databases(c.label)
+                )
+            else:
+                SchemaPopulateRequested(connection_label: c.label)
+
+    @guidance
+        -- persisted_cache_exists / persisted_cache_populated_at /
+        -- persisted_cache_databases are black-box accessors over the
+        -- on-disk cache. Their storage format and location are out of
+        -- scope for this spec (see Excludes).
+}
+
+rule PopulateSchemaCache {
+    when: SchemaPopulateRequested(connection_label)
+
+    let existing = SchemaCache{connection_label: connection_label}
+
+    ensures:
+        if introspection_succeeded(connection_label):
+            -- Replace any prior cache with fresh data.
+            if exists existing:
+                not exists existing
+            SchemaCache.created(
+                connection_label: connection_label,
+                populated_at: now,
+                last_refresh_attempt: now,
+                databases: introspected_databases(connection_label)
+            )
+        else:
+            -- Silent failure: keep existing cache (if any) unchanged,
+            -- only record the attempt timestamp.
+            if exists existing:
+                existing.last_refresh_attempt = now
+
+    @guidance
+        -- introspection_succeeded / introspected_databases are black-box
+        -- calls into the adapter. The contents of introspected_databases
+        -- are built up as DatabaseSchema / TableSchema / CollectionSchema
+        -- instances according to the connection type.
+}
+
+rule RefreshOnTick {
+    when: _: SchemaCache.populated_at + config.schema_refresh_interval <= now
+
+    ensures:
+        for c in Connections where connection_type in { postgres, mysql, mongo }:
+            SchemaPopulateRequested(connection_label: c.label)
+
+    @guidance
+        -- Fires periodically (once per refresh interval) and asks every
+        -- eligible connection to re-introspect. Populate failures are
+        -- silent, so a tick that yields no new data leaves caches
+        -- untouched.
+}
+
+rule PopulateOnAddConnection {
+    when: c: Connection.created
+
+    requires: c.connection_type in { postgres, mysql, mongo }
+
+    ensures: SchemaPopulateRequested(connection_label: c.label)
+}
+
+rule DropCacheOnDeleteConnection {
+    when: DeleteConnection(label)
+
+    let cache = SchemaCache{connection_label: label}
+    requires: exists cache
+
+    ensures: not exists cache
+
+    @guidance
+        -- Paired with DeleteConnection on the registry side: when the
+        -- Connection goes away, its cache does too. Chaining on the
+        -- DeleteConnection trigger avoids depending on Connection
+        -- removal order.
+}
+
+-- ---- Completion ----
+
+rule ClassifyContext {
+    when: CompletionRequested(buffer_text, cursor_pos)
+
+    ensures: ContextClassified(
+        context: classify_context(buffer_text, cursor_pos),
+        prefix: classify_prefix(buffer_text, cursor_pos),
+        stage_index: classify_stage_index(buffer_text, cursor_pos),
+        connection_label: classify_connection_label(buffer_text, cursor_pos),
+        sql_aliases: classify_sql_aliases(buffer_text, cursor_pos)
+    )
+
+    @guidance
+        -- The classifier is a black box whose grammar is out of scope
+        -- (see Excludes). The spec only constrains the shape of its
+        -- output: a CompletionContext variant, a prefix string (may be
+        -- empty), the 0-based index of the stage under the cursor, an
+        -- optional connection_label for that stage (null when the
+        -- stage is the reserved "jq" or when the label is not yet
+        -- typed), and an optional Map<String, String> of SQL aliases
+        -- in scope (extracted from top-level FROM/JOIN clauses of the
+        -- current stage only; CTEs and derived tables are out of scope
+        -- for MVP — see Open Questions).
+}
+
+rule ComputeSuggestions {
+    when: ContextClassified(context, prefix, stage_index, connection_label, sql_aliases)
+
+    let cache = SchemaCache{connection_label: connection_label}
+    let conn = Connection{label: connection_label}
+    let catalog =
+        if exists conn: BuiltinCatalog{connection_type: conn.connection_type}
+        else: jq_catalog
+
+    ensures:
+        if context = stage_start:
+            SuggestionsComputed(suggestions:
+                connection_label_suggestions(Connections))
+
+        else if context = sql_keyword_prefix:
+            SuggestionsComputed(suggestions:
+                sql_keyword_suggestions(catalog.sql_keywords, prefix))
+
+        else if context = sql_table_expected:
+            SuggestionsComputed(suggestions:
+                sql_table_suggestions(cache))
+
+        else if context = sql_column_expected:
+            SuggestionsComputed(suggestions:
+                sql_column_suggestions(cache, sql_aliases, prefix))
+
+        else if context = mongo_database_expected:
+            SuggestionsComputed(suggestions:
+                mongo_database_suggestions(cache))
+
+        else if context = mongo_collection_expected:
+            SuggestionsComputed(suggestions:
+                mongo_collection_suggestions(cache))
+
+        else if context = mongo_operation_expected:
+            SuggestionsComputed(suggestions:
+                mongo_operation_suggestions(catalog.mongo_collection_operations))
+
+        else if context = mongo_field_expected:
+            SuggestionsComputed(suggestions:
+                mongo_field_suggestions(cache, prefix))
+
+        else if context = redis_command_prefix:
+            SuggestionsComputed(suggestions:
+                redis_command_suggestions(catalog.redis_commands, prefix))
+
+        else if context = jq_placeholder:
+            JqPathProbeRequested(
+                buffer_text_prefix: current_pipeline_prefix(stage_index),
+                prefix: prefix,
+                jq_operators: jq_catalog.jq_operators)
+
+        else:
+            SuggestionsComputed(suggestions: {})
+
+    @guidance
+        -- The *_suggestions helpers are black-box mappers from domain
+        -- data (catalog strings, SchemaCache trees) onto Set<Suggestion>
+        -- with the appropriate SuggestionKind tag on each item:
+        --
+        --   connection_label_suggestions -> ConnectionLabel
+        --   sql_keyword_suggestions      -> SqlKeyword, filtered by prefix
+        --   sql_table_suggestions        -> Database and Table, union
+        --                                   across the cache; empty
+        --                                   Set when cache is null
+        --   sql_column_suggestions       -> Column; if prefix is
+        --                                   "alias.col", resolve alias
+        --                                   via sql_aliases to one
+        --                                   TableSchema's columns; else
+        --                                   union columns across all
+        --                                   FROM/JOIN tables in scope
+        --   mongo_database_suggestions   -> Database; empty when cache
+        --                                   is null
+        --   mongo_collection_suggestions -> MongoCollection across the
+        --                                   qualified database
+        --   mongo_operation_suggestions  -> MongoOperation from catalog
+        --   mongo_field_suggestions      -> MongoField of the collection
+        --                                   the cursor is inside
+        --   redis_command_suggestions    -> RedisCommand, filtered by
+        --                                   prefix
+        --
+        -- The jq_placeholder branch fans out to ProbeJqPaths, which
+        -- emits the final SuggestionsComputed. Doing this here keeps
+        -- ComputeSuggestions synchronous for all non-probing branches.
+}
+
+rule ProbeJqPaths {
+    when: JqPathProbeRequested(buffer_text_prefix, prefix, jq_operators)
+
+    ensures:
+        -- Run the prior stages (all guaranteed read by
+        -- ChainedStagesAreReadOnly) with a probe timeout. On success,
+        -- mine jq-style paths from the resulting JSON and return them
+        -- alongside the static jq operators. On failure or timeout,
+        -- return just the operators — silent, not an error.
+        if prior_stages_probe_succeeded(buffer_text_prefix, config.jq_path_probe_timeout):
+            SuggestionsComputed(suggestions:
+                jq_operator_suggestions(jq_operators)
+                + jq_path_suggestions(extracted_jq_paths(buffer_text_prefix)))
+        else:
+            SuggestionsComputed(suggestions:
+                jq_operator_suggestions(jq_operators))
+
+    @guidance
+        -- The probe executes the prefix sub-pipeline read-only; its
+        -- result is parsed into paths (e.g. ".users[].name") and those
+        -- are offered as jq_path suggestions. Any failure — connection
+        -- error, timeout, non-JSON output — silently degrades to just
+        -- the static jq operators; completion must never surface an
+        -- error back to the user.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant UniqueConnectionLabels {
+    -- No two registered connections share a label.
+    Connections.all(a => Connections.all(b => a = b or a.label != b.label))
+}
+
+invariant ReservedJqLabel {
+    -- The label "jq" is never present in the user-managed registry;
+    -- it refers exclusively to the built-in transformer.
+    not exists Connection{label: "jq"}
+}
+
+invariant ConnectionTypeMatchesUri {
+    -- A connection's type is fully determined by its uri scheme:
+    --   postgres://...  -> postgres
+    --   mysql://...     -> mysql
+    --   mongodb://...   -> mongo
+    --   redis://...     -> redis
+    Connections.all(c => c.connection_type = c.uri.derived_connection_type)
+}
+
+invariant ChainedStagesAreReadOnly {
+    -- In any PipelineExecution, only the last QueryStage may carry a
+    -- write or admin operation; all earlier stages must be read. This
+    -- keeps prior-stage replay (used by the jq path probe and, more
+    -- generally, by any re-execution of a pipeline prefix) safe.
+    for p in PipelineExecutions:
+        for s in p.stages:
+            s.operation in { write, admin }
+                implies s.index + 1 = p.stages.count
+}
+
+invariant SchemaCachePerEligibleConnection {
+    -- For every eligible Connection, at most one SchemaCache exists
+    -- and its connection_label matches the Connection.
+    for c in Connections:
+        c.connection_type in { postgres, mysql, mongo }
+            implies SchemaCaches.all(x =>
+                SchemaCaches.all(y =>
+                    x = y or x.connection_label != y.connection_label))
+}
+
+invariant NoSchemaCacheForRedisOrJq {
+    -- Redis connections and the reserved "jq" label never own a cache.
+    for sc in SchemaCaches:
+        sc.connection_label != "jq"
+        and (not exists Connection{label: sc.connection_label}
+             or Connection{label: sc.connection_label}.connection_type
+                in { postgres, mysql, mongo })
+}
+
+------------------------------------------------------------
+-- Open Questions
+------------------------------------------------------------
+
+-- 1. When a stage in the middle of a pipeline produces an empty result,
+--    current behaviour fails the pipeline with "No arguments passed to
+--    one of the pipelines." Is that the intended domain contract with
+--    the user, or an implementation guard that should be softened?
+--
+-- 2. Placeholder substitution uses gojq expressions evaluated against
+--    the prior JSON result. Is the gojq syntax part of the domain
+--    contract with the user (a documented feature they may rely on),
+--    or an implementation choice the user should not depend on?
+--
+-- 3. Postgres admin syntax (\dt, \d <table>) is modelled here as an
+--    operation class. Should it be promoted to named admin commands
+--    (ListTables, DescribeTable) with typed results, or left as
+--    adapter-specific string handling?
+--
+-- 4. SQL alias resolution currently covers only top-level FROM/JOIN
+--    clauses. Should CTEs (WITH ... AS) and derived tables
+--    (FROM (SELECT ...) t) also contribute aliases?
+--
+-- 5. Which exact Mongo aggregation stages should offer field-name
+--    completion inside them? The spec currently defers to UX judgment
+--    via mongo_field_expected; should the set be pinned down?
+--
+-- 6. Should a manual "refresh schema cache now" command be added?
+--    Currently omitted by design; worth revisiting if hourly staleness
+--    bites in practice.

@@ -47,3 +47,9 @@ simpanan/rplugin.vim
 # These files are user-facing documentation and must be tracked.
 !examples/
 !examples/**
+
+# Counter global ~/.gitignore '*.allium': specs are project artifacts.
+!specs/
+!specs/**
+
+.claude/

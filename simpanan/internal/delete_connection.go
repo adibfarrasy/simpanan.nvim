@@ -48,5 +48,9 @@ func HandleDeleteConnection(args []string) (string, error) {
 		return "", err
 	}
 
+	// Drop any persisted schema cache for this connection. Idempotent;
+	// a missing file is not an error.
+	_ = DeleteSchemaCacheFile(toBeDeletedConn)
+
 	return "Success", nil
 }

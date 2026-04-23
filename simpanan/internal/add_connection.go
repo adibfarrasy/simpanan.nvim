@@ -73,5 +73,12 @@ func HandleAddConnection(args []string) (string, error) {
 		return "", err
 	}
 
+	// Best-effort schema warm-up. Failures do not abort AddConnection —
+	// the cache will be populated lazily at first completion request.
+	ct, _ := common.URI(uri).ConnType()
+	if ct != nil {
+		PopulateSchemaCacheForConnection(label, uri, *ct)
+	}
+
 	return "Success", nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"simpanan/internal/adapters"
 	"simpanan/internal/common"
 	"strings"
 )
@@ -32,6 +33,10 @@ func HandleRunQuery(args []string) (string, error) {
 
 	queries, err := parseQueries(argsToRun, connMap)
 	if err != nil {
+		return processError(err)
+	}
+
+	if err := validateChainedStagesAreReadOnly(queries); err != nil {
 		return processError(err)
 	}
 
@@ -136,6 +141,41 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 		ConnType:  *connType,
 		QueryLine: query,
 	}, nil
+}
+
+// validateChainedStagesAreReadOnly enforces the spec invariant of the
+// same name: in a pipeline, only the last stage may be a write (or admin)
+// operation; all preceding stages must be reads. jq stages are pure
+// transformers and are always read-compatible. Redis has no read/write
+// classifier, so non-terminal Redis stages are rejected conservatively
+// until a classifier is introduced.
+func validateChainedStagesAreReadOnly(queries []common.QueryMetadata) error {
+	if len(queries) < 2 {
+		return nil
+	}
+	for i, q := range queries[:len(queries)-1] {
+		switch q.ConnType {
+		case common.Jq:
+			continue
+		case common.Postgres:
+			if adapters.QueryTypePostgres(q.QueryLine) == common.Write {
+				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
+			}
+		case common.Mysql:
+			if adapters.QueryTypeMysql(q.QueryLine) == common.Write {
+				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
+			}
+		case common.Mongo:
+			if adapters.QueryTypeMongo(q.QueryLine) == common.Write {
+				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
+			}
+		case common.Redis:
+			if adapters.QueryTypeRedis(q.QueryLine) == common.Write {
+				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
+			}
+		}
+	}
+	return nil
 }
 
 func hasConnArg(a string) bool {

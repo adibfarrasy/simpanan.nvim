@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"simpanan/internal/common"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,79 @@ func TestTokenizeRedisCommand(t *testing.T) {
 			}
 			assert.NoError(t, err)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestQueryTypeRedis(t *testing.T) {
+	tests := []struct {
+		query string
+		want  common.QueryType
+	}{
+		// Reads — inspection and retrieval
+		{"GET foo", common.Read},
+		{"get foo", common.Read},
+		{"MGET a b c", common.Read},
+		{"EXISTS k", common.Read},
+		{"TYPE k", common.Read},
+		{"TTL k", common.Read},
+		{"KEYS *", common.Read},
+		{"SCAN 0", common.Read},
+		{"HGET h f", common.Read},
+		{"HGETALL h", common.Read},
+		{"LRANGE l 0 -1", common.Read},
+		{"SMEMBERS s", common.Read},
+		{"SISMEMBER s m", common.Read},
+		{"ZRANGE z 0 -1", common.Read},
+		{"ZSCORE z m", common.Read},
+		{"DBSIZE", common.Read},
+		{"PING", common.Read},
+		{"INFO", common.Read},
+		{"BITCOUNT k", common.Read},
+		// Writes — strings
+		{"SET k v", common.Write},
+		{"set k v", common.Write},
+		{"SETEX k 10 v", common.Write},
+		{"MSET a 1 b 2", common.Write},
+		{"APPEND k more", common.Write},
+		{"INCR counter", common.Write},
+		{"DECRBY c 5", common.Write},
+		// Writes — generic keys
+		{"DEL k", common.Write},
+		{"UNLINK k", common.Write},
+		{"EXPIRE k 60", common.Write},
+		{"RENAME a b", common.Write},
+		// Writes — hashes
+		{"HSET h f v", common.Write},
+		{"HDEL h f", common.Write},
+		// Writes — lists
+		{"LPUSH l v", common.Write},
+		{"RPUSH l v", common.Write},
+		{"LPOP l", common.Write},
+		{"LTRIM l 0 9", common.Write},
+		// Writes — sets
+		{"SADD s m", common.Write},
+		{"SREM s m", common.Write},
+		// Writes — sorted sets
+		{"ZADD z 1 m", common.Write},
+		{"ZREM z m", common.Write},
+		// Writes — streams
+		{"XADD stream * field value", common.Write},
+		{"XDEL stream 1", common.Write},
+		// Writes — pub/sub, scripting, admin
+		{"PUBLISH ch msg", common.Write},
+		{"EVAL \"return 1\" 0", common.Write},
+		{"FLUSHDB", common.Write},
+		{"FLUSHALL", common.Write},
+		// Edge — empty and whitespace default to read
+		{"", common.Read},
+		{"   ", common.Read},
+		// Unknown command defaults to read
+		{"FOOBAR k", common.Read},
+	}
+	for _, tc := range tests {
+		t.Run(tc.query, func(t *testing.T) {
+			assert.Equal(t, tc.want, QueryTypeRedis(tc.query))
 		})
 	}
 }

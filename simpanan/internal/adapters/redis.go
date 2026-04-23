@@ -5,9 +5,67 @@ import (
 	"encoding/json"
 	"fmt"
 	"simpanan/internal/common"
+	"strings"
 
 	"github.com/go-redis/redis/v8"
 )
+
+// redisWriteCommands is the set of Redis commands that mutate state.
+// Anything not listed here is treated as read by QueryTypeRedis.
+var redisWriteCommands = map[string]struct{}{
+	// Strings
+	"set": {}, "setex": {}, "psetex": {}, "setnx": {}, "setrange": {},
+	"mset": {}, "msetnx": {}, "append": {}, "getset": {}, "getdel": {},
+	"incr": {}, "incrby": {}, "incrbyfloat": {}, "decr": {}, "decrby": {},
+	// Generic keys
+	"del": {}, "unlink": {}, "expire": {}, "pexpire": {}, "expireat": {},
+	"pexpireat": {}, "persist": {}, "rename": {}, "renamenx": {},
+	"move": {}, "copy": {}, "restore": {},
+	// Hashes
+	"hset": {}, "hsetnx": {}, "hmset": {}, "hdel": {},
+	"hincrby": {}, "hincrbyfloat": {},
+	// Lists
+	"lpush": {}, "rpush": {}, "lpushx": {}, "rpushx": {},
+	"lpop": {}, "rpop": {}, "lrem": {}, "lset": {}, "ltrim": {},
+	"linsert": {}, "blpop": {}, "brpop": {}, "blmpop": {}, "blmove": {},
+	"rpoplpush": {}, "lmove": {}, "lmpop": {},
+	// Sets
+	"sadd": {}, "srem": {}, "smove": {}, "spop": {},
+	"sinterstore": {}, "sunionstore": {}, "sdiffstore": {},
+	// Sorted sets
+	"zadd": {}, "zrem": {}, "zincrby": {},
+	"zremrangebyrank": {}, "zremrangebyscore": {}, "zremrangebylex": {},
+	"zunionstore": {}, "zinterstore": {}, "zdiffstore": {},
+	"zpopmin": {}, "zpopmax": {}, "bzpopmin": {}, "bzpopmax": {},
+	"zmpop": {}, "bzmpop": {},
+	// Bitmaps
+	"setbit": {}, "bitop": {},
+	// Streams
+	"xadd": {}, "xdel": {}, "xtrim": {}, "xgroup": {}, "xclaim": {},
+	"xack": {}, "xautoclaim": {}, "xsetid": {},
+	// HyperLogLog
+	"pfadd": {}, "pfmerge": {},
+	// Server / admin
+	"flushdb": {}, "flushall": {},
+	// Pub/Sub
+	"publish": {},
+	// Scripting (may write; conservative)
+	"eval": {}, "evalsha": {},
+}
+
+// QueryTypeRedis classifies a Redis command line as a read or a write.
+// Classification looks at the first whitespace-separated token only,
+// case-insensitively. Unknown commands default to read.
+func QueryTypeRedis(query string) common.QueryType {
+	fields := strings.Fields(query)
+	if len(fields) == 0 {
+		return common.Read
+	}
+	if _, ok := redisWriteCommands[strings.ToLower(fields[0])]; ok {
+		return common.Write
+	}
+	return common.Read
+}
 
 func ExecuteRedisQuery(q common.QueryMetadata) ([]byte, error) {
 	opts, err := redis.ParseURL(q.Conn)

@@ -132,9 +132,16 @@ body {
   min-height: 0;
 }
 
-#editor {
+.editor-wrap {
   flex: 1 1 60%;
   min-width: 0;
+  position: relative;
+  display: flex;
+}
+
+#editor {
+  flex: 1;
+  width: 100%;
   background: var(--bg);
   color: var(--fg);
   border: none;
@@ -151,6 +158,41 @@ body {
 #editor:disabled {
   color: var(--fg-muted);
 }
+
+.suggestions {
+  position: absolute;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  min-width: 220px;
+  max-width: 360px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+}
+
+.suggestions[hidden] { display: none; }
+
+.suggestion {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.suggestion .sug-text { color: var(--fg); }
+.suggestion .sug-kind { color: var(--fg-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.suggestion.active { background: var(--accent); }
+.suggestion.active .sug-kind { color: var(--fg); }
 
 .result-panel {
   flex: 1 1 40%;

@@ -20,7 +20,10 @@
   <nav id="tabs" class="tabs" aria-label="Open files"></nav>
 
   <main class="editor-shell">
-    <textarea id="editor" spellcheck="false" placeholder="Open a .simp file to start editing." disabled></textarea>
+    <div class="editor-wrap">
+      <textarea id="editor" spellcheck="false" placeholder="Open a .simp file to start editing." disabled></textarea>
+      <ul id="suggestions" class="suggestions" hidden></ul>
+    </div>
     <aside id="result-panel" class="result-panel" hidden>
       <div class="result-header">Result</div>
       <pre id="result-body"></pre>

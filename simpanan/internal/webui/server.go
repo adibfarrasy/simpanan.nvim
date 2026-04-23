@@ -101,6 +101,7 @@ func (s *Server) Start() error {
 	s.registerFileRoutes(mux)
 	s.registerConnectionRoutes(mux)
 	s.registerExecuteRoutes(mux)
+	s.registerSuggestRoutes(mux)
 	mux.HandleFunc("/api/events", s.handleEvents)
 
 	s.httpServer = &http.Server{

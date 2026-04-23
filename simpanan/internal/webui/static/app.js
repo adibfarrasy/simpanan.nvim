@@ -16,6 +16,9 @@ const cursorInfoEl = document.getElementById("cursor-info");
 const connStatusEl = document.getElementById("connection-status");
 const openBtn = document.getElementById("open-btn");
 const saveBtn = document.getElementById("save-btn");
+const runBtn = document.getElementById("run-btn");
+const resultPanel = document.getElementById("result-panel");
+const resultBody = document.getElementById("result-body");
 
 const state = {
 	files: new Map(),
@@ -86,6 +89,7 @@ function renderActive() {
 	if (!f) {
 		editEl.value = "";
 		editEl.disabled = true;
+		runBtn.disabled = true;
 		activePathEl.textContent = "no file open";
 		modifiedEl.textContent = "";
 		cursorInfoEl.textContent = "";
@@ -96,6 +100,7 @@ function renderActive() {
 		editEl.value = f.buffer_contents;
 	}
 	editEl.disabled = false;
+	runBtn.disabled = false;
 	state.applyingRemote = false;
 
 	activePathEl.textContent = f.path;
@@ -284,10 +289,48 @@ window.addEventListener("keydown", (e) => {
 		e.preventDefault();
 		openFile();
 	}
+	if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+		e.preventDefault();
+		runSelection();
+	}
 });
+
+// ---- Execute -------------------------------------------------------
+
+function getSelectionText() {
+	if (editEl.disabled) return "";
+	const start = editEl.selectionStart;
+	const end = editEl.selectionEnd;
+	if (start === end) return ""; // explicit selection required
+	return editEl.value.slice(start, end);
+}
+
+function showResult(text) {
+	resultBody.textContent = text;
+	resultPanel.hidden = false;
+}
+
+async function runSelection() {
+	const selection = getSelectionText();
+	if (!selection.trim()) {
+		showResult("Select one or more pipeline stages first.");
+		return;
+	}
+	showResult("running…");
+	try {
+		const data = await api("/api/execute", {
+			method: "POST",
+			body: { selection },
+		});
+		showResult(data.result || "(empty result)");
+	} catch (err) {
+		showResult("Request failed: " + err.message);
+	}
+}
 
 openBtn.addEventListener("click", openFile);
 saveBtn.addEventListener("click", saveFile);
+runBtn.addEventListener("click", runSelection);
 
 // ---- Connections popup ---------------------------------------------
 

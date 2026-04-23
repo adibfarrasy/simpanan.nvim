@@ -15,23 +15,29 @@ type debugObj struct {
 	Result *any `json:"result"`
 }
 
+// HandleRunQuery is the rplugin-shaped entry: args[0] is "::"-joined
+// stage lines, args[1] is "::"-joined opts. Thin shim over RunPipeline.
 func HandleRunQuery(args []string) (string, error) {
-	// remove the :: prefix and :: separators
-	argsToRun := strings.Split(args[0], "::")[1:]
+	stageLines := strings.Split(args[0], "::")[1:]
 	opts := strings.Split(args[1], "::")[1:]
+	return RunPipeline(stageLines, opts)
+}
+
+// RunPipeline executes the given stage lines and returns the final
+// JSON payload (or, in debug mode, every stage's intermediate result).
+// Used by both the rplugin shim and the webui /api/execute handler so
+// pipeline behaviour is consistent across clients.
+func RunPipeline(stageLines []string, opts []string) (string, error) {
 	common.SetConfig(opts)
 
 	conns, err := GetConnectionList()
 	if err != nil {
 		return processError(err)
 	}
-
 	connMap := common.KeyURIPairs(conns).Map()
-
-	// add special faux connection
 	connMap["jq"] = "jq://"
 
-	queries, err := parseQueries(argsToRun, connMap)
+	queries, err := parseQueries(stageLines, connMap)
 	if err != nil {
 		return processError(err)
 	}
@@ -41,27 +47,22 @@ func HandleRunQuery(args []string) (string, error) {
 	}
 
 	dbgRes := []debugObj{}
-
 	tmpRes := []byte{}
 	for i, q := range queries {
 		if i > 0 && len(tmpRes) == 0 {
 			return processError(fmt.Errorf("No arguments passed to one of the pipelines."))
 		}
-
 		res, err := execute(q, tmpRes)
 		if err != nil {
 			return processError(err)
 		}
-
 		if common.GetConfig().DebugMode {
-			var tmpRes any
-			err := json.Unmarshal(res, &tmpRes)
-			if err != nil {
+			var tmp any
+			if err := json.Unmarshal(res, &tmp); err != nil {
 				return processError(err)
 			}
-			dbgRes = append(dbgRes, debugObj{q, &tmpRes})
+			dbgRes = append(dbgRes, debugObj{q, &tmp})
 		}
-
 		tmpRes = res
 	}
 

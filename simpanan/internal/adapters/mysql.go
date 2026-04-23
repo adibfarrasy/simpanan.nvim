@@ -18,6 +18,10 @@ import (
 //
 // The URL form is what simpanan uses everywhere else; the driver's native
 // DSN form is exposed nowhere else in the codebase.
+// MysqlDSN exposes the URI-to-DSN conversion to other packages
+// (e.g. schema introspection) without requiring them to duplicate it.
+func MysqlDSN(uri string) (string, error) { return mysqlDSN(uri) }
+
 func mysqlDSN(uri string) (string, error) {
 	u, err := url.Parse(uri)
 	if err != nil {

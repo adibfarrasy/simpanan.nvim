@@ -299,14 +299,7 @@ func TestNoSchemaCacheForRedisOrJq(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestSchemaRefreshIntervalDefault(t *testing.T) {
-	t.Skip("autocomplete not implemented: config.schema_refresh_interval default")
-
-	// Obligation: the default value for schema_refresh_interval is
-	// 1 hour. AutocompleteConfig is an invented symbol — its absence
-	// is what makes `go build -tags autocomplete ./...` fail, which is
-	// the deliberate signal that the feature is still to be built.
-	//
-	// TODO: signature to be finalised during implementation
+	// Obligation: the default value for schema_refresh_interval is 1 hour.
 	want := time.Hour
 	got := AutocompleteConfig().SchemaRefreshInterval
 	if got != want {
@@ -315,10 +308,7 @@ func TestSchemaRefreshIntervalDefault(t *testing.T) {
 }
 
 func TestJqPathProbeTimeoutDefault(t *testing.T) {
-	t.Skip("autocomplete not implemented: config.jq_path_probe_timeout default")
-
 	// Obligation: default is 2 seconds.
-	// TODO: signature to be finalised during implementation
 	want := 2 * time.Second
 	got := AutocompleteConfig().JqPathProbeTimeout
 	if got != want {

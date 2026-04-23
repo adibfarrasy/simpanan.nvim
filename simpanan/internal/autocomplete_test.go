@@ -13,6 +13,7 @@ package internal
 // and expected outputs concrete.
 
 import (
+	"simpanan/internal/common"
 	"testing"
 	"time"
 )
@@ -43,27 +44,52 @@ import (
 // -----------------------------------------------------------------------
 
 func TestBuiltinCatalogDefaults(t *testing.T) {
-	t.Skip("autocomplete not implemented: entity BuiltinCatalog / default catalogs")
-
-	// TODO: signature to be finalised during implementation
-	// GetBuiltinCatalog(ct common.ConnType) BuiltinCatalog
-
 	cases := []struct {
-		name                string
-		connType            string
-		wantSqlKeyword      string // a representative keyword that must be present
-		wantMongoOp         string
-		wantMongoAggOp      string
-		wantRedisCmd        string
-		wantJqOperator      string
+		name           string
+		connType       common.ConnType
+		wantSqlKeyword string // a representative keyword that must be present
+		wantMongoOp    string
+		wantMongoAggOp string
+		wantRedisCmd   string
+		wantJqOperator string
 	}{
-		{name: "postgres catalog", connType: "postgres", wantSqlKeyword: "SELECT"},
-		{name: "mysql catalog", connType: "mysql", wantSqlKeyword: "SHOW"},
-		{name: "mongo catalog", connType: "mongo", wantMongoOp: "find", wantMongoAggOp: "$match"},
-		{name: "redis catalog", connType: "redis", wantRedisCmd: "GET"},
-		{name: "jq catalog", connType: "jq", wantJqOperator: "select"},
+		{name: "postgres catalog", connType: common.Postgres, wantSqlKeyword: "SELECT"},
+		{name: "mysql catalog", connType: common.Mysql, wantSqlKeyword: "SHOW"},
+		{name: "mongo catalog", connType: common.Mongo, wantMongoOp: "find", wantMongoAggOp: "$match"},
+		{name: "redis catalog", connType: common.Redis, wantRedisCmd: "GET"},
+		{name: "jq catalog", connType: common.Jq, wantJqOperator: "select"},
 	}
-	_ = cases
+	contains := func(haystack []string, needle string) bool {
+		for _, h := range haystack {
+			if h == needle {
+				return true
+			}
+		}
+		return false
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cat := GetBuiltinCatalog(tc.connType)
+			if cat.ConnectionType != tc.connType {
+				t.Fatalf("ConnectionType: want %q, got %q", tc.connType, cat.ConnectionType)
+			}
+			if tc.wantSqlKeyword != "" && !contains(cat.SqlKeywords, tc.wantSqlKeyword) {
+				t.Fatalf("SqlKeywords must contain %q", tc.wantSqlKeyword)
+			}
+			if tc.wantMongoOp != "" && !contains(cat.MongoCollectionOperations, tc.wantMongoOp) {
+				t.Fatalf("MongoCollectionOperations must contain %q", tc.wantMongoOp)
+			}
+			if tc.wantMongoAggOp != "" && !contains(cat.MongoAggregationOperators, tc.wantMongoAggOp) {
+				t.Fatalf("MongoAggregationOperators must contain %q", tc.wantMongoAggOp)
+			}
+			if tc.wantRedisCmd != "" && !contains(cat.RedisCommands, tc.wantRedisCmd) {
+				t.Fatalf("RedisCommands must contain %q", tc.wantRedisCmd)
+			}
+			if tc.wantJqOperator != "" && !contains(cat.JqOperators, tc.wantJqOperator) {
+				t.Fatalf("JqOperators must contain %q", tc.wantJqOperator)
+			}
+		})
+	}
 }
 
 // -----------------------------------------------------------------------

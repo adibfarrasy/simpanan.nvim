@@ -18,14 +18,12 @@ func execute(q common.QueryMetadata, previousResults []byte) ([]byte, error) {
 	case common.Postgres:
 		switch adapters.QueryTypePostgres(q.QueryLine) {
 		case common.Read:
-			if len(q.QueryLine) > 0 && q.QueryLine[0] == '\\' {
-				// special postgres syntax, e.g. \dt, \d <table>, etc.
-				return adapters.ExecutePostgresAdminCmd(q)
-			} else {
-				return adapters.ExecutePostgresReadQuery(q)
-			}
+			return adapters.ExecutePostgresReadQuery(q)
 		case common.Write:
 			return adapters.ExecutePostgresWriteQuery(q)
+		case common.Admin:
+			// psql meta-commands, e.g. \dt, \d <table>.
+			return adapters.ExecutePostgresAdminCmd(q)
 		default:
 			return nil, fmt.Errorf("Unknown query type: '%s'", q.QueryLine)
 		}

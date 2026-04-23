@@ -115,10 +115,15 @@ func bytesToFloat64(b []byte) (float64, error) {
 }
 
 func QueryTypePostgres(query string) common.QueryType {
-	fields := strings.Fields(query)
-	if len(fields) == 0 {
+	trimmed := strings.TrimSpace(query)
+	if len(trimmed) == 0 {
 		return common.Read
 	}
+	// Leading backslash marks a psql meta-command (e.g. \dt, \d <table>).
+	if trimmed[0] == '\\' {
+		return common.Admin
+	}
+	fields := strings.Fields(trimmed)
 	switch strings.ToLower(fields[0]) {
 	case "insert", "update", "delete",
 		"create", "drop", "alter", "truncate",

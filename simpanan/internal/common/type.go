@@ -32,4 +32,5 @@ var (
 
 	Write QueryType = "write"
 	Read  QueryType = "read"
+	Admin QueryType = "admin"
 )

@@ -144,35 +144,34 @@ func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, erro
 }
 
 // validateChainedStagesAreReadOnly enforces the spec invariant of the
-// same name: in a pipeline, only the last stage may be a write (or admin)
+// same name: in a pipeline, only the last stage may be a write or admin
 // operation; all preceding stages must be reads. jq stages are pure
-// transformers and are always read-compatible. Redis has no read/write
-// classifier, so non-terminal Redis stages are rejected conservatively
-// until a classifier is introduced.
+// transformers and are always read-compatible.
 func validateChainedStagesAreReadOnly(queries []common.QueryMetadata) error {
 	if len(queries) < 2 {
 		return nil
 	}
+	reject := func(i int, qt common.QueryType) error {
+		return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal %s; only the last stage may be write or admin", i+1, qt)
+	}
 	for i, q := range queries[:len(queries)-1] {
+		var qt common.QueryType
 		switch q.ConnType {
 		case common.Jq:
 			continue
 		case common.Postgres:
-			if adapters.QueryTypePostgres(q.QueryLine) == common.Write {
-				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
-			}
+			qt = adapters.QueryTypePostgres(q.QueryLine)
 		case common.Mysql:
-			if adapters.QueryTypeMysql(q.QueryLine) == common.Write {
-				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
-			}
+			qt = adapters.QueryTypeMysql(q.QueryLine)
 		case common.Mongo:
-			if adapters.QueryTypeMongo(q.QueryLine) == common.Write {
-				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
-			}
+			qt = adapters.QueryTypeMongo(q.QueryLine)
 		case common.Redis:
-			if adapters.QueryTypeRedis(q.QueryLine) == common.Write {
-				return fmt.Errorf("ChainedStagesAreReadOnly: stage %d is a non-terminal write; only the last stage may be write", i+1)
-			}
+			qt = adapters.QueryTypeRedis(q.QueryLine)
+		default:
+			continue
+		}
+		if qt == common.Write || qt == common.Admin {
+			return reject(i, qt)
 		}
 	}
 	return nil

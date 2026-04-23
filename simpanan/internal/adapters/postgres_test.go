@@ -27,6 +27,10 @@ func TestQueryTypePostgres(t *testing.T) {
 		{"SELECT * FROM t", common.Read},
 		{"with cte as (select 1) select * from cte", common.Read},
 		{"   select 1  ", common.Read},
+		// Admin — psql meta-commands
+		{"\\dt", common.Admin},
+		{"\\d users", common.Admin},
+		{"  \\dt", common.Admin},
 		// Edge
 		{"", common.Read},
 		{"   ", common.Read},

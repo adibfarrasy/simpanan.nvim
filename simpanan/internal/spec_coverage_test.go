@@ -148,9 +148,11 @@ func TestQueryTypePostgresRouting(t *testing.T) {
 		{"alter is write", "ALTER TABLE t ADD c int", common.Write},
 		{"truncate is write", "TRUNCATE t", common.Write},
 		{"empty defaults read", "", common.Read},
-		// RoutePostgres distinguishes admin separately (the '\' prefix
-		// is handled in execute.go, not in QueryTypePostgres).
-		{"admin backslash falls through as read", "\\dt", common.Read},
+		// RoutePostgres distinguishes admin: psql meta-commands are
+		// classified as Admin and dispatched to ExecutePostgresAdminCmd.
+		{"dt is admin", "\\dt", common.Admin},
+		{"d table is admin", "\\d users", common.Admin},
+		{"leading whitespace then backslash is admin", "  \\dt", common.Admin},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -266,8 +268,8 @@ func pipelineRejectsNonTerminalWrites(queries []common.QueryMetadata) error {
 		case common.Redis:
 			qt = adapters.QueryTypeRedis(q.QueryLine)
 		}
-		if qt == common.Write {
-			return errors.New("non-terminal write stage violates ChainedStagesAreReadOnly")
+		if qt == common.Write || qt == common.Admin {
+			return errors.New("non-terminal write or admin stage violates ChainedStagesAreReadOnly")
 		}
 	}
 	return nil
@@ -328,6 +330,27 @@ func TestChainedStagesAreReadOnly_RejectsMidPipelineWrite(t *testing.T) {
 		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "SELECT * FROM users"},
 	}
 	assert.Error(t, pipelineRejectsNonTerminalWrites(queries))
+}
+
+func TestChainedStagesAreReadOnly_RejectsNonTerminalAdmin(t *testing.T) {
+	// psql meta-commands (\dt, \d <table>) classify as Admin. The spec
+	// invariant treats admin symmetrically with write: only the last
+	// stage may be admin. A \dt sandwiched between reads must be rejected.
+	queries := []common.QueryMetadata{
+		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "SELECT id FROM users"},
+		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "\\dt"},
+		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "SELECT * FROM users"},
+	}
+	assert.Error(t, pipelineRejectsNonTerminalWrites(queries))
+}
+
+func TestChainedStagesAreReadOnly_AllowsTerminalAdmin(t *testing.T) {
+	// \dt at the final stage is permitted.
+	queries := []common.QueryMetadata{
+		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "SELECT 1"},
+		{Conn: "postgres://h/db", ConnType: common.Postgres, QueryLine: "\\dt"},
+	}
+	assert.NoError(t, pipelineRejectsNonTerminalWrites(queries))
 }
 
 func TestChainedStagesAreReadOnly_JqIsAlwaysReadCompatible(t *testing.T) {

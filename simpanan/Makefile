@@ -8,10 +8,16 @@ all:
 	make copy
 
 clean:
-	rm -f simpanan rplugin.vim simpanan_connections.json
+	rm -f simpanan simpanan-webui rplugin.vim simpanan_connections.json
 
 build:
 	go build -o simpanan .
+
+build-webui:
+	go build -o simpanan-webui ./cmd/simpanan-webui
+
+webui: build-webui
+	cp simpanan-webui ~/go/bin
 
 prepare-copy:
 	cat rplugin.vim.template > rplugin.vim
@@ -25,4 +31,4 @@ copy:
 	cp simpanan ~/go/bin
 	cp rplugin.vim ~/.local/share/nvim
 
-.PHONY: clean build prepare-copy manifest copy all
+.PHONY: clean build build-webui webui prepare-copy manifest copy all

@@ -116,6 +116,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.events.Publish(Event{Type: EventFileOpened, Payload: f})
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -133,6 +134,7 @@ func (s *Server) handleClose(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.events.Publish(Event{Type: EventFileClosed, Payload: map[string]string{"path": req.Path}})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "closed"})
 }
 
@@ -151,6 +153,7 @@ func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, _ := s.buffers.Get(req.Path)
+	s.events.Publish(Event{Type: EventFileSaved, Payload: f})
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -169,6 +172,7 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.events.Publish(Event{Type: EventBufferUpdated, Payload: f})
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -186,5 +190,6 @@ func (s *Server) handleSwitchActive(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.events.Publish(Event{Type: EventActiveSwitched, Payload: map[string]string{"path": req.Path}})
 	writeJSON(w, http.StatusOK, map[string]string{"active": req.Path})
 }

@@ -48,6 +48,7 @@ type Server struct {
 	listener   net.Listener
 
 	buffers *BufferStore
+	events  *EventBus
 }
 
 // NewServer constructs a Server in StatusStarting. It does not bind
@@ -57,6 +58,7 @@ func NewServer(port int) *Server {
 		port:    port,
 		status:  StatusStarting,
 		buffers: NewBufferStore(),
+		events:  NewEventBus(),
 	}
 }
 
@@ -97,6 +99,7 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.registerFileRoutes(mux)
+	mux.HandleFunc("/api/events", s.handleEvents)
 
 	s.httpServer = &http.Server{
 		Handler:           mux,

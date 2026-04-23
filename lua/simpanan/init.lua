@@ -271,6 +271,11 @@ end
 
 function M.setup(opts)
 	M.opts = vim.tbl_deep_extend("force", default_opts, (opts or {}))
+	-- Register the nvim-cmp source for .simp buffers. Silent no-op
+	-- when nvim-cmp is not installed.
+	pcall(function()
+		require("simpanan.cmp").register()
+	end)
 end
 
 return M

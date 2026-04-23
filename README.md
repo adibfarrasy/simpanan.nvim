@@ -70,6 +70,11 @@ After the first install, run `:UpdateRemotePlugins` once and restart Neovim so t
   connection get **full SQL highlighting** injected automatically from
   Neovim's bundled `sql.vim`. Highlighting refreshes live as connections
   are added or deleted.
+- **Context-aware autocomplete** (via `nvim-cmp`) — connection labels at
+  stage start, SQL keywords and alias-scoped columns, Mongo database /
+  collection / operation / `$`-operator fields, Redis commands, jq
+  operators, and jq paths probed on demand from the prior pipeline's
+  output. Schema cache refreshes hourly; jq path probes cache for 30s.
 
 ## Configuration
 
@@ -80,6 +85,21 @@ require('simpanan').setup({
                          -- {conn_type, query, result} instead of only the
                          -- final result. Useful for diagnosing placeholder
                          -- substitution.
+})
+```
+
+### Autocomplete (nvim-cmp)
+
+`require('simpanan').setup()` registers a `simpanan` source with
+`nvim-cmp` (if installed). Add it to your `cmp.setup` sources list for
+`.simp` buffers:
+
+```lua
+require('cmp').setup({
+  sources = cmp.config.sources({
+    { name = 'simpanan' },
+    -- ... your other sources
+  }),
 })
 ```
 

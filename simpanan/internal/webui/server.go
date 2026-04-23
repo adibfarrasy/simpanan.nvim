@@ -148,10 +148,9 @@ func (s *Server) shutdown() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// registerRoutes wires the HTTP handlers. Real handlers arrive in
-// later milestones; M1 ships only the placeholder root and a health
-// endpoint useful for debugging "is something on this port already
-// my webui?".
+// registerRoutes wires the non-API handlers: the SPA shell at /, the
+// embedded static assets at /static/*, and the /health probe used by
+// "am I already running?" detection.
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -159,20 +158,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, indexPlaceholder)
+		_, _ = w.Write(indexHTML())
 	})
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(staticFileSystem())))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"server":"simpanan-webui","status":"`+string(s.Status())+`","port":`+strconv.Itoa(s.port)+`}`)
 	})
 }
-
-const indexPlaceholder = `<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>simpanan webui</title></head>
-  <body>
-    <h1>simpanan webui</h1>
-    <p>The webui is running. Editor UI lands in a later milestone.</p>
-  </body>
-</html>
-`

@@ -80,7 +80,7 @@ func TestServer_StartStopHealthIsReachable(t *testing.T) {
 	assert.Equal(t, StatusRunning, srv.Status())
 }
 
-func TestServer_RootServesPlaceholderHtml(t *testing.T) {
+func TestServer_RootServesEmbeddedSpaShell(t *testing.T) {
 	base, _, stop := startTestServer(t)
 	defer stop()
 
@@ -89,8 +89,23 @@ func TestServer_RootServesPlaceholderHtml(t *testing.T) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "simpanan webui")
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "simpanan webui")
+	assert.Contains(t, bodyStr, `id="editor"`, "SPA shell must include the editor element")
+	assert.Contains(t, bodyStr, `/static/app.js`, "SPA shell must reference the bundled JS")
 	assert.Equal(t, "text/html; charset=utf-8", resp.Header.Get("Content-Type"))
+}
+
+func TestServer_StaticAssetsServedFromEmbed(t *testing.T) {
+	base, _, stop := startTestServer(t)
+	defer stop()
+
+	for _, path := range []string{"/static/app.js", "/static/app.css", "/static/index.html"} {
+		resp, err := http.Get(base + path)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "asset %s must be served", path)
+		resp.Body.Close()
+	}
 }
 
 func TestServer_UnknownPathIs404(t *testing.T) {

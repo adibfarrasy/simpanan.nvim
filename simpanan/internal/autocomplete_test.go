@@ -16,6 +16,8 @@ import (
 	"simpanan/internal/common"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TODO: signature to be finalised during implementation
@@ -184,133 +186,283 @@ func TestClassifyContext_MultiStageUsesCorrectConnection(t *testing.T) {
 // a test obligation. Each sub-test below covers one branch.
 // -----------------------------------------------------------------------
 
-func TestComputeSuggestions_StageStart(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/stage_start (enum branch)")
-
-	// Obligation: returns connection_label_suggestions over the full
-	// registry.
-	cases := []struct {
-		name              string
-		registeredLabels  []string
-		wantLabels        []string
-	}{
-		{"empty registry", nil, nil},
-		{"two connections", []string{"pg", "mg"}, []string{"pg", "mg"}},
+func suggestionTexts(suggestions []Suggestion) []string {
+	out := make([]string, len(suggestions))
+	for i, s := range suggestions {
+		out[i] = s.Text
 	}
-	_ = cases
+	return out
+}
+
+func containsAllSuggestions(texts []string, want []string) bool {
+	have := map[string]bool{}
+	for _, t := range texts {
+		have[t] = true
+	}
+	for _, w := range want {
+		if !have[w] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestComputeSuggestions_StageStart(t *testing.T) {
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{
+		{Key: "pg", URI: "postgres://h/db"},
+		{Key: "mg", URI: "mongodb://h/db"},
+	})
+	got := ComputeSuggestions(ContextClassification{Context: CtxStageStart, Prefix: ""})
+	texts := suggestionTexts(got)
+	if !containsAllSuggestions(texts, []string{"mg", "pg"}) {
+		t.Fatalf("want both pg and mg; got %v", texts)
+	}
+	// Kind is always ConnectionLabel for this branch.
+	for _, s := range got {
+		if s.Kind != SuggestionConnectionLabel {
+			t.Fatalf("want ConnectionLabel kind, got %q", s.Kind)
+		}
+	}
 }
 
 func TestComputeSuggestions_SqlKeywordPrefix(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/sql_keyword_prefix (enum branch)")
-
-	// Obligation: returns catalog.sql_keywords filtered by prefix.
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{
+		{Key: "pg", URI: "postgres://h/db"},
+		{Key: "my", URI: "mysql://h/db"},
+	})
 	cases := []struct {
-		name     string
-		connType string
-		prefix   string
-		want     []string // representative expected keywords
+		name   string
+		label  string
+		prefix string
+		want   []string
 	}{
-		{"postgres SEL prefix", "postgres", "SEL", []string{"SELECT"}},
-		{"mysql SH prefix", "mysql", "SH", []string{"SHOW"}},
-		{"empty prefix returns all", "postgres", "", []string{"SELECT", "FROM", "WHERE"}},
+		{"postgres SEL prefix", "pg", "SEL", []string{"SELECT"}},
+		{"mysql SH prefix", "my", "SH", []string{"SHOW"}},
+		{"empty prefix returns cross-dialect set", "pg", "", []string{"SELECT", "FROM", "WHERE"}},
 	}
-	_ = cases
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ComputeSuggestions(ContextClassification{
+				Context:         CtxSqlKeywordPrefix,
+				ConnectionLabel: tc.label,
+				Prefix:          tc.prefix,
+			})
+			if !containsAllSuggestions(suggestionTexts(got), tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, suggestionTexts(got))
+			}
+		})
+	}
 }
 
 func TestComputeSuggestions_SqlTableExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/sql_table_expected (enum branch)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "pg", URI: "postgres://h/db"}})
+	swapIntrospect(t, func(label, uri string, ct common.ConnType) (*SchemaCache, error) {
+		return nil, nil // no live DB
+	})
 
-	// Obligation: returns Database + Table suggestions across the
-	// cache; empty when cache is null.
-	cases := []struct {
-		name       string
-		hasCache   bool
-		wantNonEmpty bool
-	}{
-		{"no cache returns empty", false, false},
-		{"populated cache returns tables", true, true},
+	// No cache: empty.
+	got := ComputeSuggestions(ContextClassification{
+		Context:         CtxSqlTableExpected,
+		ConnectionLabel: "pg",
+	})
+	if len(got) != 0 {
+		t.Fatalf("no cache must yield empty; got %v", suggestionTexts(got))
 	}
-	_ = cases
+
+	// Populated cache: databases and tables returned.
+	assert.NoError(t, SaveSchemaCache(&SchemaCache{
+		ConnectionLabel: "pg",
+		PopulatedAt:     timePtr(time.Now()),
+		Databases: []DatabaseSchema{
+			{Name: "analytics", Tables: []TableSchema{{Name: "users", Columns: []string{"id"}}, {Name: "events", Columns: []string{"id"}}}},
+			{Name: "reporting", Tables: []TableSchema{{Name: "daily", Columns: []string{"day"}}}},
+		},
+	}))
+
+	got = ComputeSuggestions(ContextClassification{
+		Context:         CtxSqlTableExpected,
+		ConnectionLabel: "pg",
+	})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"analytics", "reporting", "users", "events", "daily"}) {
+		t.Fatalf("want databases + tables; got %v", suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_SqlColumnExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/sql_column_expected (enum branch)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "pg", URI: "postgres://h/db"}})
+	assert.NoError(t, SaveSchemaCache(&SchemaCache{
+		ConnectionLabel: "pg",
+		PopulatedAt:     timePtr(time.Now()),
+		Databases: []DatabaseSchema{
+			{Name: "app", Tables: []TableSchema{
+				{Name: "users", Columns: []string{"id", "email", "created_at"}},
+				{Name: "orders", Columns: []string{"id", "user_id", "total"}},
+			}},
+		},
+	}))
 
-	// Obligation: if prefix is "alias.col", resolve alias to one
-	// table's columns; else union columns across all FROM/JOIN tables
-	// in scope.
-	cases := []struct {
-		name    string
-		aliases map[string]string
-		prefix  string
-	}{
-		{"alias.col prefix resolves via alias map", map[string]string{"u": "users"}, "u."},
-		{"bare prefix unions columns across scope", map[string]string{"u": "users", "o": "orders"}, ""},
-		{"unknown alias returns empty", map[string]string{"u": "users"}, "z."},
+	// alias.col prefix resolves via alias map.
+	got := ComputeSuggestions(ContextClassification{
+		Context:         CtxSqlColumnExpected,
+		ConnectionLabel: "pg",
+		SqlAliases:      map[string]string{"u": "users"},
+		Prefix:          "u.",
+	})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"id", "email", "created_at"}) {
+		t.Fatalf("alias-scoped columns: got %v", suggestionTexts(got))
 	}
-	_ = cases
+	for _, s := range suggestionTexts(got) {
+		if s == "user_id" {
+			t.Fatalf("must NOT include columns from orders table; got %v", suggestionTexts(got))
+		}
+	}
+
+	// Bare prefix unions columns across scope.
+	got = ComputeSuggestions(ContextClassification{
+		Context:         CtxSqlColumnExpected,
+		ConnectionLabel: "pg",
+		SqlAliases:      map[string]string{"u": "users", "o": "orders"},
+		Prefix:          "",
+	})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"id", "email", "total"}) {
+		t.Fatalf("union of columns: got %v", suggestionTexts(got))
+	}
+
+	// Unknown alias returns empty (not a fallback to union).
+	got = ComputeSuggestions(ContextClassification{
+		Context:         CtxSqlColumnExpected,
+		ConnectionLabel: "pg",
+		SqlAliases:      map[string]string{"u": "users"},
+		Prefix:          "z.",
+	})
+	if len(got) != 0 {
+		t.Fatalf("unknown alias must return empty; got %v", suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_MongoDatabaseExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/mongo_database_expected (enum branch)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "mg", URI: "mongodb://h/db"}})
+	swapIntrospect(t, func(label, uri string, ct common.ConnType) (*SchemaCache, error) {
+		return nil, nil
+	})
 
-	cases := []struct {
-		name     string
-		hasCache bool
-	}{
-		{"cache null returns empty", false},
-		{"cache populated returns database names", true},
+	got := ComputeSuggestions(ContextClassification{Context: CtxMongoDatabaseExpected, ConnectionLabel: "mg"})
+	if len(got) != 0 {
+		t.Fatalf("cache null: expect empty; got %v", suggestionTexts(got))
 	}
-	_ = cases
+
+	assert.NoError(t, SaveSchemaCache(&SchemaCache{
+		ConnectionLabel: "mg",
+		PopulatedAt:     timePtr(time.Now()),
+		Databases: []DatabaseSchema{
+			{Name: "app", Collections: []CollectionSchema{{Name: "users"}}},
+			{Name: "analytics", Collections: []CollectionSchema{{Name: "events"}}},
+		},
+	}))
+	got = ComputeSuggestions(ContextClassification{Context: CtxMongoDatabaseExpected, ConnectionLabel: "mg"})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"app", "analytics"}) {
+		t.Fatalf("want both databases; got %v", suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_MongoCollectionExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/mongo_collection_expected (enum branch)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "mg", URI: "mongodb://h/db"}})
+	assert.NoError(t, SaveSchemaCache(&SchemaCache{
+		ConnectionLabel: "mg",
+		PopulatedAt:     timePtr(time.Now()),
+		Databases: []DatabaseSchema{
+			{Name: "app", Collections: []CollectionSchema{{Name: "users"}, {Name: "orders"}}},
+			{Name: "analytics", Collections: []CollectionSchema{{Name: "events"}}},
+		},
+	}))
 
-	// Obligation: returns collections under the qualified database.
+	got := ComputeSuggestions(ContextClassification{
+		Context:         CtxMongoCollectionExpected,
+		ConnectionLabel: "mg",
+		Prefix:          "db.app.",
+	})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"users", "orders"}) {
+		t.Fatalf("want collections of app database; got %v", suggestionTexts(got))
+	}
+	for _, s := range suggestionTexts(got) {
+		if s == "events" {
+			t.Fatalf("must not include collections from other databases; got %v", suggestionTexts(got))
+		}
+	}
 }
 
 func TestComputeSuggestions_MongoOperationExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/mongo_operation_expected (enum branch)")
-
-	// Obligation: returns catalog.mongo_collection_operations
-	// (find, findOne, aggregate, insertOne, ...).
-	wantRepresentative := []string{"find", "findOne", "aggregate", "insertOne"}
-	_ = wantRepresentative
+	got := ComputeSuggestions(ContextClassification{Context: CtxMongoOperationExpected})
+	want := []string{"find", "findOne", "aggregate", "insertOne"}
+	if !containsAllSuggestions(suggestionTexts(got), want) {
+		t.Fatalf("want %v, got %v", want, suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_MongoFieldExpected(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/mongo_field_expected (enum branch)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "mg", URI: "mongodb://h/db"}})
+	assert.NoError(t, SaveSchemaCache(&SchemaCache{
+		ConnectionLabel: "mg",
+		PopulatedAt:     timePtr(time.Now()),
+		Databases: []DatabaseSchema{
+			{Name: "app", Collections: []CollectionSchema{
+				{Name: "users", Fields: []string{"email", "name", "created_at"}},
+			}},
+		},
+	}))
 
-	// Obligation: returns the collection's field set, filtered by prefix.
+	got := ComputeSuggestions(ContextClassification{
+		Context:         CtxMongoFieldExpected,
+		ConnectionLabel: "mg",
+		Prefix:          "em",
+	})
+	if !containsAllSuggestions(suggestionTexts(got), []string{"email"}) {
+		t.Fatalf("want email under em prefix; got %v", suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_RedisCommandPrefix(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/redis_command_prefix (enum branch)")
-
 	cases := []struct {
 		name   string
 		prefix string
 		want   []string
 	}{
-		{"GE prefix narrows to GET", "GE", []string{"GET"}},
-		{"empty prefix returns full command set", "", []string{"GET", "SET", "DEL"}},
+		{"GE prefix", "GE", []string{"GET"}},
+		{"empty prefix", "", []string{"GET", "SET", "DEL"}},
 	}
-	_ = cases
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ComputeSuggestions(ContextClassification{Context: CtxRedisCommandPrefix, Prefix: tc.prefix})
+			if !containsAllSuggestions(suggestionTexts(got), tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, suggestionTexts(got))
+			}
+		})
+	}
 }
 
 func TestComputeSuggestions_JqPlaceholder(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/jq_placeholder (enum branch — fans out to ProbeJqPaths)")
-
-	// Obligation: does NOT return suggestions synchronously; emits
-	// JqPathProbeRequested instead.
+	got := ComputeSuggestions(ContextClassification{Context: CtxJqPlaceholder, Prefix: ""})
+	// M6 returns operators only; path-mining arrives in M7.
+	if !containsAllSuggestions(suggestionTexts(got), []string{"select", "map", "length"}) {
+		t.Fatalf("want jq operators; got %v", suggestionTexts(got))
+	}
 }
 
 func TestComputeSuggestions_Unknown(t *testing.T) {
-	t.Skip("autocomplete not implemented: ComputeSuggestions/unknown (enum branch)")
-
-	// Obligation: SuggestionsComputed with an empty set.
+	got := ComputeSuggestions(ContextClassification{Context: CtxUnknown})
+	if got != nil {
+		t.Fatalf("unknown context must yield nil; got %v", got)
+	}
 }
+
+func timePtr(t time.Time) *time.Time { return &t }
 
 // -----------------------------------------------------------------------
 // rule ProbeJqPaths

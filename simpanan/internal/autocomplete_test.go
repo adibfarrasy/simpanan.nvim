@@ -100,28 +100,83 @@ func TestBuiltinCatalogDefaults(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestClassifyContext(t *testing.T) {
-	t.Skip("autocomplete not implemented: rule ClassifyContext (grammar is a spec-declared black box)")
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{
+		{Key: "pg", URI: "postgres://h/db"},
+		{Key: "mg", URI: "mongodb://h/db"},
+		{Key: "rd", URI: "redis://h"},
+	})
 
-	// TODO: signature to be finalised during implementation
-	// ClassifyContext(bufferText string, cursorPos int) ContextClassification
-
-	// Representative cursor scenarios. Actual grammar is
-	// implementation-defined, so only a handful of unambiguous
-	// positions are pinned down here.
 	cases := []struct {
-		name     string
-		buf      string
-		cursor   int
-		wantCtx  string // CompletionContext variant name
+		name    string
+		buf     string
+		cursor  int
+		wantCtx CompletionContext
 	}{
-		{"empty buffer -> stage_start", "", 0, "stage_start"},
-		{"after pg> (no query yet) -> sql_keyword_prefix", "pg> ", 4, "sql_keyword_prefix"},
-		{"after FROM -> sql_table_expected", "pg> SELECT * FROM ", 18, "sql_table_expected"},
-		{"after WHERE -> sql_column_expected", "pg> SELECT * FROM t WHERE ", 26, "sql_column_expected"},
-		{"after db. -> mongo_database_expected", "mg> db.", 7, "mongo_database_expected"},
-		{"inside jq placeholder -> jq_placeholder", "pg> SELECT 1\npg> SELECT {{.foo}}", 28, "jq_placeholder"},
+		{"empty buffer", "", 0, CtxStageStart},
+		{"typing label prefix", "p", 1, CtxStageStart},
+		{"after pg> space only", "pg> ", 4, CtxSqlKeywordPrefix},
+		{"after SELECT partial keyword", "pg> SEL", 7, CtxSqlKeywordPrefix},
+		{"after FROM", "pg> SELECT * FROM ", 18, CtxSqlTableExpected},
+		{"after INSERT INTO", "pg> INSERT INTO ", 16, CtxSqlTableExpected},
+		{"after UPDATE", "pg> UPDATE ", 11, CtxSqlTableExpected},
+		{"after WHERE", "pg> SELECT * FROM t WHERE ", 26, CtxSqlColumnExpected},
+		{"after JOIN ON", "pg> SELECT * FROM a JOIN b ON ", 30, CtxSqlColumnExpected},
+		{"alias qualified column", "pg> SELECT * FROM users u WHERE u.", 34, CtxSqlColumnExpected},
+		{"after db.", "mg> db.", 7, CtxMongoDatabaseExpected},
+		{"after db.app.", "mg> db.app.", 11, CtxMongoCollectionExpected},
+		{"after db.app.users.", "mg> db.app.users.", 17, CtxMongoOperationExpected},
+		{"inside $match field pos", "mg> db.app.users.aggregate([{$match: {", 38, CtxMongoFieldExpected},
+		{"redis command prefix", "rd> G", 5, CtxRedisCommandPrefix},
+		{"jq placeholder in later stage", "pg> SELECT 1\npg> SELECT {{.foo", 30, CtxJqPlaceholder},
+		{"explicit jq stage", "jq> .", 5, CtxJqPlaceholder},
+		{"unknown label", "other> SELECT", 13, CtxUnknown},
 	}
-	_ = cases
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyContext(tc.buf, tc.cursor)
+			if got.Context != tc.wantCtx {
+				t.Fatalf("want %q, got %q (prefix=%q, label=%q)",
+					tc.wantCtx, got.Context, got.Prefix, got.ConnectionLabel)
+			}
+		})
+	}
+}
+
+func TestClassifyContext_SqlAliasesExtracted(t *testing.T) {
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{{Key: "pg", URI: "postgres://h/db"}})
+
+	buf := "pg> SELECT u.id FROM users u JOIN orders o ON o.user_id = u.id WHERE "
+	got := ClassifyContext(buf, len(buf))
+	if got.Context != CtxSqlColumnExpected {
+		t.Fatalf("want sql_column_expected, got %q", got.Context)
+	}
+	if got.SqlAliases["u"] != "users" {
+		t.Fatalf("alias u must map to users; got %q", got.SqlAliases["u"])
+	}
+	if got.SqlAliases["o"] != "orders" {
+		t.Fatalf("alias o must map to orders; got %q", got.SqlAliases["o"])
+	}
+}
+
+func TestClassifyContext_MultiStageUsesCorrectConnection(t *testing.T) {
+	home := withTempHome(t)
+	seedConnections(t, home, []common.KeyURIPair{
+		{Key: "pg", URI: "postgres://h/db"},
+		{Key: "mg", URI: "mongodb://h/db"},
+	})
+	buf := "pg> SELECT id FROM users\nmg> db."
+	got := ClassifyContext(buf, len(buf))
+	if got.Context != CtxMongoDatabaseExpected {
+		t.Fatalf("want mongo_database_expected, got %q", got.Context)
+	}
+	if got.ConnectionLabel != "mg" {
+		t.Fatalf("want label=mg, got %q", got.ConnectionLabel)
+	}
+	if got.StageIndex != 1 {
+		t.Fatalf("want stage_index=1, got %d", got.StageIndex)
+	}
 }
 
 // -----------------------------------------------------------------------

@@ -762,3 +762,14 @@ invariant NoSchemaCacheForRedisOrJq {
 -- 6. Should a manual "refresh schema cache now" command be added?
 --    Currently omitted by design; worth revisiting if hourly staleness
 --    bites in practice.
+--
+-- 7. ClassifyContext is implemented as a regex-based state machine for
+--    MVP. A full dialect-aware parser (e.g. pg_query_go for Postgres,
+--    vitess parser for MySQL, a real BSON expression parser for Mongo)
+--    would give significantly better context precision — particularly
+--    around CTEs, subqueries, derived tables and nested aggregation
+--    pipelines, which the regex classifier cannot reliably navigate.
+--    Aspirational: migrate classification to per-dialect parsers once
+--    the regex MVP reveals its limits in practice. The spec deliberately
+--    leaves the grammar a black box (see Excludes) so this migration
+--    does not require a spec change.

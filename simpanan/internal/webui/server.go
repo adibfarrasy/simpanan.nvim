@@ -88,6 +88,12 @@ func (s *Server) Start() error {
 	}
 	s.listener = ln
 
+	// Spec rule RestoreSession: rehydrate the workspace from the
+	// recovery file (if any). A corrupt or missing file is non-fatal.
+	if err := s.buffers.LoadRecovery(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not restore previous session: %v\n", err)
+	}
+
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.registerFileRoutes(mux)
@@ -123,12 +129,16 @@ func (s *Server) Start() error {
 	}
 }
 
-// shutdown transitions to StatusShuttingDown, gives in-flight HTTP
-// requests up to 5s to finish, and returns. The recovery-file flush
-// promised by ShutdownWebui will be added in a later milestone.
+// shutdown transitions to StatusShuttingDown, flushes the recovery
+// file (spec rule ShutdownWebui), and gives in-flight HTTP requests
+// up to 5s to finish.
 func (s *Server) shutdown() error {
 	s.setStatus(StatusShuttingDown)
 	fmt.Fprintln(os.Stderr, "\nshutting down…")
+
+	if err := s.buffers.FlushRecovery(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not flush recovery file: %v\n", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

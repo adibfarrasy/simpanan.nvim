@@ -28,6 +28,9 @@ func freePort(t *testing.T) int {
 // cleanup function that stops the server.
 func startTestServer(t *testing.T) (string, *Server, func()) {
 	t.Helper()
+	// Isolate HOME so the recovery file (loaded on Start) cannot see
+	// leftover state from another test or the real workspace.
+	withTempHome(t)
 	port := freePort(t)
 	srv := NewServer(port)
 

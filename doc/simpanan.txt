@@ -16,8 +16,20 @@ simpanan.list_connections()
 simpanan.execute()
 
     Execute the highlighted text in visual mode and execute the query. >
-        
+
         simpanan.execute()
+<
+
+                                                       *simpanan.refresh_schemas()*
+simpanan.refresh_schemas({label})
+
+    Drop the on-disk schema cache for one connection (or all connections
+    when {label} is nil or "") so the next autocomplete request
+    re-introspects. Useful after running a migration in another tool
+    when you don't want to wait up to an hour for the automatic refresh. >
+
+        simpanan.refresh_schemas("pg0")  -- just this connection
+        simpanan.refresh_schemas()        -- every connection
 <
 
 vim:tw=78:ts=8:ft=help:norl:

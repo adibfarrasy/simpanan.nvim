@@ -540,6 +540,23 @@ rule DropCacheOnDeleteConnection {
         -- removal order.
 }
 
+-- Manual refresh: the user has just altered a schema out-of-band
+-- (e.g. ran a migration in a different tool) and does not want to
+-- wait up to schema_refresh_interval for the next automatic tick.
+-- The refresh is modelled as a cache drop; the next completion
+-- request will lazily repopulate the cleared caches via the normal
+-- PopulateSchemaCache path. An empty or missing label refreshes
+-- every eligible cache; a specific label refreshes only that one.
+rule MaybeRefreshSchemas {
+    when: RefreshSchemas(label)
+
+    ensures:
+        if label = "":
+            SchemaCaches.all(c => not exists c)
+        else:
+            not exists SchemaCache{connection_label: label}
+}
+
 -- ---- Completion ----
 
 rule ClassifyContext {
@@ -751,17 +768,28 @@ invariant NoSchemaCacheForRedisOrJq {
 --    (ListTables, DescribeTable) with typed results, or left as
 --    adapter-specific string handling?
 --
--- 4. SQL alias resolution currently covers only top-level FROM/JOIN
---    clauses. Should CTEs (WITH ... AS) and derived tables
---    (FROM (SELECT ...) t) also contribute aliases?
+-- 4. (Resolved, MVP scope.) SQL alias resolution covers only top-level
+--    FROM/JOIN clauses. CTEs (WITH ... AS) and derived tables
+--    (FROM (SELECT ...) t) are deliberately out of scope at this
+--    level: both introduce virtual tables whose column shape depends
+--    on the inner SELECT, which a regex-based classifier cannot
+--    determine. Deeper alias resolution is unblocked by Open Q #7
+--    (parser-per-dialect migration); when that lands, CTE / subquery
+--    alias contribution follows from the real parse tree.
 --
--- 5. Which exact Mongo aggregation stages should offer field-name
---    completion inside them? The spec currently defers to UX judgment
---    via mongo_field_expected; should the set be pinned down?
+-- 5. (Resolved.) Mongo field-name completion fires inside the first
+--    argument object of these aggregation stages: $match, $project,
+--    $group, $sort, $lookup, $addFields, $set, $unset, $bucket,
+--    $bucketAuto, $sortByCount, $replaceRoot, $replaceWith, $merge,
+--    $out, $geoNear, $graphLookup. These are exactly the stages whose
+--    leading argument is a document keyed by field names; every other
+--    aggregation stage takes a pipeline, an array or a scalar
+--    expression and is not a field-name position.
 --
--- 6. Should a manual "refresh schema cache now" command be added?
---    Currently omitted by design; worth revisiting if hourly staleness
---    bites in practice.
+-- 6. (Resolved via MaybeRefreshSchemas.) A manual "refresh schema cache
+--    now" entry point exists for the case of recent schema migrations
+--    that the hourly cycle has not yet picked up. See rule
+--    MaybeRefreshSchemas below.
 --
 -- 7. ClassifyContext is implemented as a regex-based state machine for
 --    MVP. A full dialect-aware parser (e.g. pg_query_go for Postgres,

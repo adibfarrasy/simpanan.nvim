@@ -269,6 +269,18 @@ function M.execute()
 	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", true)
 end
 
+function M.refresh_schemas(label)
+	local arg = label or ""
+	local res, err = vim.fn["SimpananRefreshSchemas"](arg)
+	if err ~= nil then
+		util.print_red(err)
+		return
+	end
+	if type(res) == "string" and #res > 0 then
+		print(res)
+	end
+end
+
 function M.setup(opts)
 	M.opts = vim.tbl_deep_extend("force", default_opts, (opts or {}))
 	-- Register the nvim-cmp source for .simp buffers. Silent no-op

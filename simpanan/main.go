@@ -13,6 +13,7 @@ func main() {
 		p.HandleFunction(&plugin.FunctionOptions{Name: "SimpananAddConnection"}, internal.HandleAddConnection)
 		p.HandleFunction(&plugin.FunctionOptions{Name: "SimpananDeleteConnection"}, internal.HandleDeleteConnection)
 		p.HandleFunction(&plugin.FunctionOptions{Name: "SimpananSuggest"}, internal.HandleSuggest)
+		p.HandleFunction(&plugin.FunctionOptions{Name: "SimpananRefreshSchemas"}, internal.HandleRefreshSchemas)
 		return nil
 	})
 }

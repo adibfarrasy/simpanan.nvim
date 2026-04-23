@@ -13,7 +13,7 @@
       <button id="open-btn" type="button" title="Open .simp file (Ctrl+O)">Open</button>
       <button id="save-btn" type="button" title="Save active file (Ctrl+S)">Save</button>
       <button id="run-btn" type="button" title="Run selection or active file (Ctrl+Enter)" disabled>Run</button>
-      <button id="connections-btn" type="button" title="Manage connections" disabled>Connections</button>
+      <button id="connections-btn" type="button" title="Manage connections">Connections</button>
     </div>
   </header>
 
@@ -26,6 +26,31 @@
       <pre id="result-body"></pre>
     </aside>
   </main>
+
+  <div id="modal-backdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-labelledby="modal-title">
+      <header class="modal-header">
+        <h2 id="modal-title">Connections</h2>
+        <button id="modal-close" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="modal-body">
+        <ul id="connections-list" class="connections-list"></ul>
+        <form id="add-connection-form" class="add-connection-form">
+          <h3>Add connection</h3>
+          <label>
+            Label
+            <input id="conn-label" type="text" required placeholder="pg0" autocomplete="off">
+          </label>
+          <label>
+            URI
+            <input id="conn-uri" type="text" required placeholder="postgres://user:pass@host/db" autocomplete="off">
+          </label>
+          <button type="submit">Add</button>
+          <p id="conn-error" class="conn-error"></p>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <footer class="statusbar">
     <span id="active-path">no file open</span>

@@ -289,4 +289,115 @@ window.addEventListener("keydown", (e) => {
 openBtn.addEventListener("click", openFile);
 saveBtn.addEventListener("click", saveFile);
 
+// ---- Connections popup ---------------------------------------------
+
+const connectionsBtn = document.getElementById("connections-btn");
+const modalBackdrop = document.getElementById("modal-backdrop");
+const modalCloseBtn = document.getElementById("modal-close");
+const connectionsListEl = document.getElementById("connections-list");
+const addConnForm = document.getElementById("add-connection-form");
+const connLabelInput = document.getElementById("conn-label");
+const connUriInput = document.getElementById("conn-uri");
+const connErrorEl = document.getElementById("conn-error");
+
+async function refreshConnections() {
+	try {
+		const data = await api("/api/connections");
+		renderConnectionsList(data.connections || []);
+	} catch (err) {
+		connErrorEl.textContent = "Failed to load connections: " + err.message;
+	}
+}
+
+function renderConnectionsList(conns) {
+	connectionsListEl.innerHTML = "";
+	if (conns.length === 0) {
+		const empty = document.createElement("li");
+		empty.textContent = "No connections registered yet.";
+		empty.style.color = "var(--fg-muted)";
+		empty.style.justifyContent = "center";
+		connectionsListEl.appendChild(empty);
+		return;
+	}
+	for (const c of conns) {
+		const li = document.createElement("li");
+
+		const text = document.createElement("div");
+		text.className = "conn-text";
+		const label = document.createElement("span");
+		label.className = "conn-label";
+		label.textContent = c.label;
+		const uri = document.createElement("span");
+		uri.className = "conn-uri";
+		uri.textContent = c.uri;
+		text.appendChild(label);
+		text.appendChild(uri);
+		li.appendChild(text);
+
+		const del = document.createElement("button");
+		del.className = "conn-delete";
+		del.type = "button";
+		del.textContent = "Delete";
+		del.addEventListener("click", () => deleteConnection(c.label));
+		li.appendChild(del);
+
+		connectionsListEl.appendChild(li);
+	}
+}
+
+async function deleteConnection(label) {
+	connErrorEl.textContent = "";
+	try {
+		const res = await fetch("/api/connections", {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ label }),
+		});
+		if (!res.ok) {
+			const text = await res.text();
+			let msg = text;
+			try { msg = JSON.parse(text).error || text; } catch (_) {}
+			connErrorEl.textContent = msg;
+			return;
+		}
+		await refreshConnections();
+	} catch (err) {
+		connErrorEl.textContent = err.message;
+	}
+}
+
+addConnForm.addEventListener("submit", async (e) => {
+	e.preventDefault();
+	connErrorEl.textContent = "";
+	const label = connLabelInput.value.trim();
+	const uri = connUriInput.value.trim();
+	try {
+		await api("/api/connections", { method: "POST", body: { label, uri } });
+		connLabelInput.value = "";
+		connUriInput.value = "";
+		await refreshConnections();
+	} catch (err) {
+		connErrorEl.textContent = err.message;
+	}
+});
+
+function openConnectionsModal() {
+	connErrorEl.textContent = "";
+	modalBackdrop.hidden = false;
+	refreshConnections();
+}
+
+function closeConnectionsModal() {
+	modalBackdrop.hidden = true;
+}
+
+connectionsBtn.addEventListener("click", openConnectionsModal);
+modalCloseBtn.addEventListener("click", closeConnectionsModal);
+modalBackdrop.addEventListener("click", (e) => {
+	if (e.target === modalBackdrop) closeConnectionsModal();
+});
+window.addEventListener("keydown", (e) => {
+	if (e.key === "Escape" && !modalBackdrop.hidden) closeConnectionsModal();
+});
+
 bootstrap();

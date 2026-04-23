@@ -203,3 +203,157 @@ body {
 
 .connection-status.connected { color: var(--success); }
 .connection-status.disconnected { color: var(--danger); }
+
+/* Modal --------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-backdrop[hidden] { display: none; }
+
+.modal {
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#modal-close {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.modal-body {
+  padding: 12px 16px;
+  overflow: auto;
+}
+
+.connections-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connections-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-tab);
+  border-radius: 4px;
+}
+
+.connections-list .conn-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.connections-list .conn-label {
+  font-weight: 600;
+  color: var(--fg);
+  margin-right: 8px;
+}
+
+.connections-list .conn-uri {
+  color: var(--fg-muted);
+  font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.connections-list .conn-delete {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.connections-list .conn-delete:hover {
+  background: var(--danger);
+  color: var(--fg);
+}
+
+.add-connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.add-connection-form h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.add-connection-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.add-connection-form input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--fg);
+  font: inherit;
+}
+
+.add-connection-form button {
+  align-self: flex-start;
+  background: var(--accent);
+  color: var(--fg);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.conn-error {
+  color: var(--danger);
+  margin: 0;
+  font-size: 12px;
+  min-height: 1em;
+}

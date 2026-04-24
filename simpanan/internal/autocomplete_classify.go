@@ -67,6 +67,25 @@ func ClassifyContext(bufferText string, cursorPos int) ContextClassification {
 	stageIdx, headerEnd, label := findCurrentStage(before)
 	prefix := wordPrefixAt(before)
 
+	// In-progress new stage header: the cursor's current line starts
+	// (after optional whitespace) with '|' but has no '>' yet. The
+	// user is typing a brand-new stage header, so we must NOT classify
+	// the cursor as belonging to whatever previous stage's body
+	// findCurrentStage just located. Suggest connection labels.
+	{
+		lineStart := lastIndexOrZero(before, "\n")
+		currentLine := before[lineStart:]
+		trimmed := strings.TrimLeft(currentLine, " \t")
+		if strings.HasPrefix(trimmed, "|") && !strings.Contains(trimmed, ">") {
+			labelPrefix := strings.TrimPrefix(trimmed, "|")
+			return ContextClassification{
+				Context:    CtxStageStart,
+				Prefix:     labelPrefix,
+				StageIndex: stageIdx + 1,
+			}
+		}
+	}
+
 	// No stage header before cursor: user is typing the label of the
 	// first stage (or is in pre-stage whitespace).
 	if headerEnd < 0 {

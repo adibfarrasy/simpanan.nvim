@@ -134,6 +134,15 @@ func TestClassifyContext(t *testing.T) {
 		{"jq placeholder in later stage", "|pg> SELECT 1\n|pg> SELECT {{.foo", 32, CtxJqPlaceholder},
 		{"explicit jq stage", "|jq> .", 6, CtxJqPlaceholder},
 		{"unknown label", "|other> SELECT", 14, CtxUnknown},
+		// Bare '|' on a fresh line after a previous complete stage:
+		// the user is starting a new stage header, NOT continuing the
+		// previous stage's body. Must classify as stage_start so the
+		// connection-label popup appears.
+		{"bare | on new line after stage", "|pg> SELECT 1\n|", 15, CtxStageStart},
+		// Same thing but with whitespace before the |.
+		{"  | on new line", "|pg> SELECT 1\n   |", 18, CtxStageStart},
+		// Partial label after | on a new line.
+		{"|p on new line", "|pg> SELECT 1\n|p", 16, CtxStageStart},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

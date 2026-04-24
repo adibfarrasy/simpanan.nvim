@@ -30,9 +30,16 @@ function M:is_available()
 end
 
 function M:get_trigger_characters()
-	-- '|' triggers connection-label suggestions at the start of a new
-	-- stage. The others are existing context-dependent triggers.
-	return { "|", ".", "{", ">", "$" }
+	-- '|'  starts a new stage header → suggests connection labels.
+	-- '.'  navigates a qualifier (e.g. db.app.users., u.col) → suggests
+	--       collections / operations / columns.
+	-- '{'  opens a jq placeholder (`{{`) → suggests jq operators / paths.
+	-- '$'  starts a Mongo $-operator (`$match`, `$group`, …).
+	-- '>' is intentionally NOT a trigger: by the time the user types '>'
+	--      they've already committed the label, and what comes next is
+	--      body content whose own keystrokes (word characters) will
+	--      auto-trigger via cmp's default behaviour.
+	return { "|", ".", "{", "$" }
 end
 
 function M:get_keyword_pattern()

@@ -13,7 +13,7 @@
 // count in the last 30 days. Stage 2: use jq to pull just the product
 // IDs out as a comma-separated SQL IN-list. Stage 3: look those up in
 // Postgres to grab the human-readable names and current prices.
-mongo1> db.orders.aggregate([
+|mongo1> db.orders.aggregate([
   { "$match": { "placed_at": { "$gte": "2026-03-23T00:00:00Z" } } },
   { "$unwind": "$items" },
   { "$group": { "_id": "$items.product_id", "n": { "$sum": 1 } } },
@@ -24,9 +24,9 @@ mongo1> db.orders.aggregate([
 // `.[] | ._id` extracts each product id; `join(",")` glues them into
 // a comma-separated list. The surrounding parens make the result a
 // valid SQL IN-list: WHERE id IN (1,2,3).
-jq> "(" + ([.[] | ._id] | join(",")) + ")"
+|jq> "(" + ([.[] | ._id] | join(",")) + ")"
 
-pg0> SELECT id, name, price_cents
+|pg0> SELECT id, name, price_cents
      FROM products
      WHERE id IN {{.}};
 
@@ -36,14 +36,14 @@ pg0> SELECT id, name, price_cents
 // Here we pull a list of user ids out of Postgres, bucket them by
 // signup cohort with jq, then use the cohort members to fetch their
 // most recent mongo-stored activity events.
-pg0> SELECT id, created_at::date AS cohort
+|pg0> SELECT id, created_at::date AS cohort
      FROM users
      WHERE created_at >= '2026-01-01';
 
 // Collapse to a JSON array of just the IDs.
-jq> [ .[] | .id ]
+|jq> [ .[] | .id ]
 
-mongo1> db.activity.find(
+|mongo1> db.activity.find(
   { "user_id": { "$in": {{.}} } },
   { "_id": 0, "user_id": 1, "event": 1, "ts": 1 }
 )
@@ -54,14 +54,14 @@ mongo1> db.activity.find(
 // Redis holds a per-user request counter. Pull the current value,
 // use jq to parse it as a number, then join with the user row from
 // Postgres to get the name of whoever is hammering the API.
-cache> GET "ratelimit:user:1337"
+|cache> GET "ratelimit:user:1337"
 
 // GET returns a JSON-encoded string (Redis has no native int type in
 // RESP JSON); convert to a number so the next stage substitutes it as
 // `42` instead of `"42"`.
-jq> . | tonumber
+|jq> . | tonumber
 
-pg0> SELECT id, name, email
+|pg0> SELECT id, name, email
      FROM users
      WHERE id = {{.}};
 

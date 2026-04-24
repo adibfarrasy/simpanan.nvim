@@ -184,7 +184,7 @@ func parseBufferStages(bufferText string) []bufferStage {
 			continue
 		}
 		if m := stageHeaderRe.FindStringSubmatch(line); m != nil {
-			headerEnd := strings.Index(line, ">") + 1
+			headerEnd := strings.Index(line, ">") + 1 // first '>' after the leading '|'
 			query := strings.TrimSpace(line[headerEnd:])
 			out = append(out, bufferStage{
 				Label:       m[1],

@@ -117,23 +117,23 @@ func TestClassifyContext(t *testing.T) {
 		wantCtx CompletionContext
 	}{
 		{"empty buffer", "", 0, CtxStageStart},
-		{"typing label prefix", "p", 1, CtxStageStart},
-		{"after pg> space only", "pg> ", 4, CtxSqlKeywordPrefix},
-		{"after SELECT partial keyword", "pg> SEL", 7, CtxSqlKeywordPrefix},
-		{"after FROM", "pg> SELECT * FROM ", 18, CtxSqlTableExpected},
-		{"after INSERT INTO", "pg> INSERT INTO ", 16, CtxSqlTableExpected},
-		{"after UPDATE", "pg> UPDATE ", 11, CtxSqlTableExpected},
-		{"after WHERE", "pg> SELECT * FROM t WHERE ", 26, CtxSqlColumnExpected},
-		{"after JOIN ON", "pg> SELECT * FROM a JOIN b ON ", 30, CtxSqlColumnExpected},
-		{"alias qualified column", "pg> SELECT * FROM users u WHERE u.", 34, CtxSqlColumnExpected},
-		{"after db.", "mg> db.", 7, CtxMongoDatabaseExpected},
-		{"after db.app.", "mg> db.app.", 11, CtxMongoCollectionExpected},
-		{"after db.app.users.", "mg> db.app.users.", 17, CtxMongoOperationExpected},
-		{"inside $match field pos", "mg> db.app.users.aggregate([{$match: {", 38, CtxMongoFieldExpected},
-		{"redis command prefix", "rd> G", 5, CtxRedisCommandPrefix},
-		{"jq placeholder in later stage", "pg> SELECT 1\npg> SELECT {{.foo", 30, CtxJqPlaceholder},
-		{"explicit jq stage", "jq> .", 5, CtxJqPlaceholder},
-		{"unknown label", "other> SELECT", 13, CtxUnknown},
+		{"typing label prefix", "|p", 2, CtxStageStart},
+		{"after pg> space only", "|pg> ", 5, CtxSqlKeywordPrefix},
+		{"after SELECT partial keyword", "|pg> SEL", 8, CtxSqlKeywordPrefix},
+		{"after FROM", "|pg> SELECT * FROM ", 19, CtxSqlTableExpected},
+		{"after INSERT INTO", "|pg> INSERT INTO ", 17, CtxSqlTableExpected},
+		{"after UPDATE", "|pg> UPDATE ", 12, CtxSqlTableExpected},
+		{"after WHERE", "|pg> SELECT * FROM t WHERE ", 27, CtxSqlColumnExpected},
+		{"after JOIN ON", "|pg> SELECT * FROM a JOIN b ON ", 31, CtxSqlColumnExpected},
+		{"alias qualified column", "|pg> SELECT * FROM users u WHERE u.", 35, CtxSqlColumnExpected},
+		{"after db.", "|mg> db.", 8, CtxMongoDatabaseExpected},
+		{"after db.app.", "|mg> db.app.", 12, CtxMongoCollectionExpected},
+		{"after db.app.users.", "|mg> db.app.users.", 18, CtxMongoOperationExpected},
+		{"inside $match field pos", "|mg> db.app.users.aggregate([{$match: {", 39, CtxMongoFieldExpected},
+		{"redis command prefix", "|rd> G", 6, CtxRedisCommandPrefix},
+		{"jq placeholder in later stage", "|pg> SELECT 1\n|pg> SELECT {{.foo", 32, CtxJqPlaceholder},
+		{"explicit jq stage", "|jq> .", 6, CtxJqPlaceholder},
+		{"unknown label", "|other> SELECT", 14, CtxUnknown},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestClassifyContext_SqlAliasesExtracted(t *testing.T) {
 	home := withTempHome(t)
 	seedConnections(t, home, []common.KeyURIPair{{Key: "pg", URI: "postgres://h/db"}})
 
-	buf := "pg> SELECT u.id FROM users u JOIN orders o ON o.user_id = u.id WHERE "
+	buf := "|pg> SELECT u.id FROM users u JOIN orders o ON o.user_id = u.id WHERE "
 	got := ClassifyContext(buf, len(buf))
 	if got.Context != CtxSqlColumnExpected {
 		t.Fatalf("want sql_column_expected, got %q", got.Context)
@@ -169,7 +169,7 @@ func TestClassifyContext_MultiStageUsesCorrectConnection(t *testing.T) {
 		{Key: "pg", URI: "postgres://h/db"},
 		{Key: "mg", URI: "mongodb://h/db"},
 	})
-	buf := "pg> SELECT id FROM users\nmg> db."
+	buf := "|pg> SELECT id FROM users\n|mg> db."
 	got := ClassifyContext(buf, len(buf))
 	if got.Context != CtxMongoDatabaseExpected {
 		t.Fatalf("want mongo_database_expected, got %q", got.Context)
@@ -491,7 +491,7 @@ func TestProbeJqPaths_SuccessReturnsOperatorsAndPaths(t *testing.T) {
 		return []byte(`[{"id": 1, "email": "a@b"}, {"id": 2, "email": "c@d"}]`), nil
 	})
 
-	buf := "pg> SELECT id, email FROM users\npg> SELECT * FROM orders WHERE user_id = '{{"
+	buf := "|pg> SELECT id, email FROM users\n|pg> SELECT * FROM orders WHERE user_id = '{{"
 	got := SuggestForBuffer(buf, len(buf))
 	texts := suggestionTexts(got)
 	// Operators present.
@@ -511,7 +511,7 @@ func TestProbeJqPaths_FailureDegradesSilently(t *testing.T) {
 		return nil, fmt.Errorf("db unreachable")
 	})
 
-	buf := "pg> SELECT id FROM users\npg> SELECT * FROM orders WHERE user_id = '{{"
+	buf := "|pg> SELECT id FROM users\n|pg> SELECT * FROM orders WHERE user_id = '{{"
 	got := SuggestForBuffer(buf, len(buf))
 	texts := suggestionTexts(got)
 	if !containsAllSuggestions(texts, []string{"select", "map"}) {
@@ -539,7 +539,7 @@ func TestProbeJqPaths_TimeoutDegradesSilently(t *testing.T) {
 	swapRunPipeline(t, func(stages []common.QueryMetadata) ([]byte, error) {
 		return nil, nil
 	})
-	buf := "pg> SELECT id FROM users\npg> SELECT * FROM orders WHERE user_id = '{{"
+	buf := "|pg> SELECT id FROM users\n|pg> SELECT * FROM orders WHERE user_id = '{{"
 	got := SuggestForBuffer(buf, len(buf))
 	for _, s := range got {
 		if s.Kind == SuggestionJqPath {
@@ -558,7 +558,7 @@ func TestProbeJqPaths_UsesDiskCacheOnSecondCall(t *testing.T) {
 		return []byte(`{"id": 1, "name": "alice"}`), nil
 	})
 
-	buf := "pg> SELECT id, name FROM users\npg> SELECT * FROM orders WHERE user_id = '{{"
+	buf := "|pg> SELECT id, name FROM users\n|pg> SELECT * FROM orders WHERE user_id = '{{"
 	_ = SuggestForBuffer(buf, len(buf))
 	_ = SuggestForBuffer(buf, len(buf))
 	assert.Equal(t, 1, calls, "second call must hit the on-disk probe cache")
@@ -574,7 +574,7 @@ func TestProbeJqPaths_FirstStageHasNoPriorToProbe(t *testing.T) {
 		return nil, nil
 	})
 	// A jq stage at the very start of the buffer has no prior pipeline.
-	buf := "jq> {{"
+	buf := "|jq> {{"
 	got := SuggestForBuffer(buf, len(buf))
 	assert.False(t, called, "probe must not run when there is no prior stage")
 	if !containsAllSuggestions(suggestionTexts(got), []string{"select", "map"}) {

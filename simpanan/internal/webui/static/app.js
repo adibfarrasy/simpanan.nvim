@@ -17,7 +17,7 @@
 import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
 import { keymap } from "https://esm.sh/@codemirror/view@6.26.3";
 import { Annotation } from "https://esm.sh/@codemirror/state@6.4.1";
-import { autocompletion } from "https://esm.sh/@codemirror/autocomplete@6.16.0";
+import { autocompletion, startCompletion } from "https://esm.sh/@codemirror/autocomplete@6.16.0";
 import { defaultKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6.5.0";
 import { simpStreamLanguage } from "/static/simp_lang.js";
 
@@ -86,6 +86,7 @@ function ensureView(initialContents) {
 				closeOnBlur: true,
 				activateOnTyping: true,
 			}),
+			triggerOnSimpChars,
 			EditorView.theme({
 				"&": { height: "100%", backgroundColor: "var(--bg)" },
 			}),
@@ -145,6 +146,26 @@ function handleViewUpdate(update) {
 function updateCursorInfo() {
 	cursorInfoEl.textContent = `cursor ${getCursorOffset()}`;
 }
+
+// ---- Trigger characters -------------------------------------------
+
+const TRIGGER_CHARS = new Set(["|", ".", "{", ">", "$"]);
+
+// CM6 only auto-activates completion on word characters by default.
+// To make our trigger chars (.,{,>,$) activate the popup we listen
+// for those exact insertions and call startCompletion explicitly.
+const triggerOnSimpChars = EditorView.updateListener.of((update) => {
+	if (!update.docChanged) return;
+	let triggered = false;
+	update.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
+		if (triggered) return;
+		const text = inserted.toString();
+		for (const ch of text) {
+			if (TRIGGER_CHARS.has(ch)) { triggered = true; return; }
+		}
+	});
+	if (triggered) startCompletion(update.view);
+});
 
 // ---- Suggestion source -------------------------------------------
 

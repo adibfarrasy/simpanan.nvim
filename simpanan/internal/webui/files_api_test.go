@@ -37,13 +37,13 @@ func TestAPI_OpenFileHappyPath(t *testing.T) {
 	defer stop()
 
 	simpPath := filepath.Join(t.TempDir(), "a.simp")
-	assert.NoError(t, os.WriteFile(simpPath, []byte("pg> SELECT 1"), 0644))
+	assert.NoError(t, os.WriteFile(simpPath, []byte("|pg> SELECT 1"), 0644))
 
 	code, body := postJSON(t, base, "/api/files/open", openRequest{Path: simpPath})
 	assert.Equal(t, http.StatusOK, code)
 	var f OpenFile
 	assert.NoError(t, json.Unmarshal(body, &f))
-	assert.Equal(t, "pg> SELECT 1", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 1", f.BufferContents)
 	assert.Equal(t, StatusClean, f.Status)
 }
 
@@ -86,27 +86,27 @@ func TestAPI_EditUpdatesBuffer(t *testing.T) {
 	base, _, stop := startTestServer(t)
 	defer stop()
 	simpPath := filepath.Join(t.TempDir(), "a.simp")
-	assert.NoError(t, os.WriteFile(simpPath, []byte("pg> SELECT 1"), 0644))
+	assert.NoError(t, os.WriteFile(simpPath, []byte("|pg> SELECT 1"), 0644))
 	_, _ = postJSON(t, base, "/api/files/open", openRequest{Path: simpPath})
 
 	code, body := postJSON(t, base, "/api/files/edit", editRequest{
-		Path: simpPath, BufferContents: "pg> SELECT 2", CursorByteOffset: 12,
+		Path: simpPath, BufferContents: "|pg> SELECT 2", CursorByteOffset: 12,
 	})
 	assert.Equal(t, http.StatusOK, code)
 	var f OpenFile
 	assert.NoError(t, json.Unmarshal(body, &f))
 	assert.Equal(t, StatusModified, f.Status)
-	assert.Equal(t, "pg> SELECT 2", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 2", f.BufferContents)
 }
 
 func TestAPI_SaveWritesToDisk(t *testing.T) {
 	base, _, stop := startTestServer(t)
 	defer stop()
 	simpPath := filepath.Join(t.TempDir(), "a.simp")
-	assert.NoError(t, os.WriteFile(simpPath, []byte("pg> SELECT 1"), 0644))
+	assert.NoError(t, os.WriteFile(simpPath, []byte("|pg> SELECT 1"), 0644))
 	_, _ = postJSON(t, base, "/api/files/open", openRequest{Path: simpPath})
 	_, _ = postJSON(t, base, "/api/files/edit", editRequest{
-		Path: simpPath, BufferContents: "pg> SELECT 42",
+		Path: simpPath, BufferContents: "|pg> SELECT 42",
 	})
 
 	code, body := postJSON(t, base, "/api/files/save", saveRequest{Path: simpPath})
@@ -116,7 +116,7 @@ func TestAPI_SaveWritesToDisk(t *testing.T) {
 	assert.Equal(t, StatusClean, f.Status)
 
 	onDisk, _ := os.ReadFile(simpPath)
-	assert.Equal(t, "pg> SELECT 42", string(onDisk))
+	assert.Equal(t, "|pg> SELECT 42", string(onDisk))
 }
 
 func TestAPI_CloseRemovesFromList(t *testing.T) {
@@ -140,7 +140,7 @@ func TestAPI_GetFileReturnsFullState(t *testing.T) {
 	base, _, stop := startTestServer(t)
 	defer stop()
 	simpPath := filepath.Join(t.TempDir(), "a.simp")
-	assert.NoError(t, os.WriteFile(simpPath, []byte("pg> SELECT 1"), 0644))
+	assert.NoError(t, os.WriteFile(simpPath, []byte("|pg> SELECT 1"), 0644))
 	_, _ = postJSON(t, base, "/api/files/open", openRequest{Path: simpPath})
 
 	code, body := getBody(t, base+"/api/files/get?path="+simpPath)
@@ -148,7 +148,7 @@ func TestAPI_GetFileReturnsFullState(t *testing.T) {
 	var f OpenFile
 	assert.NoError(t, json.Unmarshal(body, &f))
 	assert.Equal(t, simpPath, f.Path)
-	assert.Equal(t, "pg> SELECT 1", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 1", f.BufferContents)
 }
 
 func TestAPI_ListFilesReflectsActive(t *testing.T) {

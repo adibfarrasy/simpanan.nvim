@@ -113,22 +113,24 @@ func parseQueries(args []string, connMap map[string]string) ([]common.QueryMetad
 	return queries, nil
 }
 
+// stageHeaderInArgRe matches a stage header inside one of parseQueries'
+// args. Stage syntax is `|<label>>...`: a literal '|', then a label
+// (no whitespace, no '>', no '|'), optional whitespace, then '>'.
+var stageHeaderInArgRe = regexp.MustCompile(`^\|([^\s>|]+)\s*>`)
+
 func parseQuery(a string, connMap map[string]string) (common.QueryMetadata, error) {
-	match := regexp.MustCompile(`^(\S+?)>`).FindStringSubmatch(a)
-	conn := ""
-	if len(match) > 0 {
-		conn = strings.TrimSpace(match[1])
+	match := stageHeaderInArgRe.FindStringSubmatch(a)
+	if len(match) == 0 {
+		return common.QueryMetadata{}, fmt.Errorf("Stage missing leading '|<label>>' header in: %q", a)
 	}
+	conn := strings.TrimSpace(match[1])
 	v, ok := connMap[conn]
 	if !ok {
 		return common.QueryMetadata{}, fmt.Errorf("Connection key '%s' not found.", conn)
 	}
 
-	split := strings.SplitN(a, fmt.Sprintf("%s>", conn), 2)
-	if len(split) < 2 {
-		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
-	}
-	query := strings.TrimSpace(split[1])
+	headerEnd := stageHeaderInArgRe.FindStringIndex(a)[1]
+	query := strings.TrimSpace(a[headerEnd:])
 	if len(query) == 0 {
 		return common.QueryMetadata{}, fmt.Errorf("No query on the right hand side of connection.")
 	}
@@ -179,7 +181,7 @@ func validateChainedStagesAreReadOnly(queries []common.QueryMetadata) error {
 }
 
 func hasConnArg(a string) bool {
-	return len(regexp.MustCompile(`^\S+?>`).FindString(a)) > 0
+	return stageHeaderInArgRe.MatchString(a)
 }
 
 func sanitizeArgs(args []string) (res []string) {

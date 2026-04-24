@@ -17,12 +17,12 @@
 // Stage 1 returns the 3 most recent reward balances as JSON. Stage 2
 // takes the `reward_id` of the first row and looks up the matching
 // reward. Select BOTH stages to run them as a pipeline.
-pg0> SELECT id, reward_id, balance, created_at
+|pg0> SELECT id, reward_id, balance, created_at
      FROM reward_balances
      ORDER BY created_at DESC
      LIMIT 3;
 
-pg0> SELECT *
+|pg0> SELECT *
      FROM rewards
      WHERE id = '{{.[0].reward_id}}';
 
@@ -32,11 +32,11 @@ pg0> SELECT *
 // Nothing stops stages in a pipeline from targeting DIFFERENT
 // connections. Here we read a user id out of postgres, then use it to
 // fetch that user's orders from mongo.
-pg0> SELECT id
+|pg0> SELECT id
      FROM users
      WHERE email = 'alice@example.com';
 
-mongo1> db.orders.find({user_id: "{{.[0].id}}"}, {_id: 0})
+|mongo1> db.orders.find({user_id: "{{.[0].id}}"}, {_id: 0})
 
 
 // -- Pipeline C: SQL -> jq -> SQL --
@@ -45,18 +45,18 @@ mongo1> db.orders.find({user_id: "{{.[0].id}}"}, {_id: 0})
 // touch a database, it just runs its query text as a jq expression
 // against the previous stage's JSON. Use it to reshape, filter or
 // extract values between real stages.
-pg0> SELECT id, email, role
+|pg0> SELECT id, email, role
      FROM users
      LIMIT 20;
 
 // Keep only admins, project to just their emails (as a JSON array).
-jq> [ .[] | select(.role == "admin") | .email ]
+|jq> [ .[] | select(.role == "admin") | .email ]
 
 // Use that projection to filter a second table. The placeholder
 // expands to a JSON array literal like ["a@x.com","b@x.com"] which
 // Postgres happily accepts inside `ANY(ARRAY[...])` — but here we
 // just grab the first one for simplicity.
-pg0> SELECT *
+|pg0> SELECT *
      FROM audit_log
      WHERE actor_email = '{{.[0]}}'
      ORDER BY ts DESC
@@ -69,8 +69,8 @@ pg0> SELECT *
 // value, then fall back to the database. (This doesn't branch on
 // cache-miss — simpanan always runs every stage. It's shown here to
 // illustrate multi-connection chaining, not as a real cache pattern.)
-cache> GET user:42
+|cache> GET user:42
 
-jq> .
+|jq> .
 
-pg0> SELECT * FROM users WHERE id = 42;
+|pg0> SELECT * FROM users WHERE id = 42;

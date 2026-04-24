@@ -14,7 +14,7 @@ func TestHandleSuggest_RejectsMissingArgs(t *testing.T) {
 }
 
 func TestHandleSuggest_RejectsNonIntegerCursor(t *testing.T) {
-	_, err := HandleSuggest([]string{"pg> ", "not-a-number"})
+	_, err := HandleSuggest([]string{"|pg> ", "not-a-number"})
 	assert.Error(t, err)
 }
 
@@ -22,7 +22,7 @@ func TestHandleSuggest_ReturnsJsonArray(t *testing.T) {
 	home := withTempHome(t)
 	seedConnections(t, home, []common.KeyURIPair{{Key: "pg", URI: "postgres://h/db"}})
 
-	out, err := HandleSuggest([]string{"pg> SEL", "7"})
+	out, err := HandleSuggest([]string{"|pg> SEL", "7"})
 	assert.NoError(t, err)
 
 	var suggestions []Suggestion

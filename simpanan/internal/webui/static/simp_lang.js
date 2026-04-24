@@ -153,8 +153,8 @@ function makeSimpParser(connTypesRef) {
 					stream.skipToEnd();
 					return "comment";
 				}
-				// Stage header: "<label>>" possibly with whitespace
-				const m = stream.match(/^([^\s>]+)\s*>/);
+				// Stage header: "|<label>>" possibly with whitespace
+				const m = stream.match(/^\|([^\s>|]+)\s*>/);
 				if (m) {
 					state.stageLang = langForLabel(m[1], connTypesRef.value);
 					return "labelName";

@@ -258,6 +258,7 @@ rule AddConnection {
 
     requires: label != "jq"
     requires: not label.contains(">")
+    requires: not label.contains("|")
     requires: not exists Connection{label: label}
     requires: uri.has_recognised_scheme
 
@@ -270,8 +271,9 @@ rule AddConnection {
     @guidance
         -- The label "jq" is reserved for the built-in transformer and
         -- must not be shadowed by a user-registered connection. The
-        -- character ">" separates a connection label from its query
-        -- text in the pipeline parser, so it cannot appear in labels.
+        -- characters "|" and ">" both have meaning in the pipeline
+        -- parser ("|<label>>" delimits a stage header), so neither
+        -- can appear in labels.
 }
 
 rule DeleteConnection {

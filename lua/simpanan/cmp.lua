@@ -30,7 +30,9 @@ function M:is_available()
 end
 
 function M:get_trigger_characters()
-	return { ".", "{", ">", "$" }
+	-- '|' triggers connection-label suggestions at the start of a new
+	-- stage. The others are existing context-dependent triggers.
+	return { "|", ".", "{", ">", "$" }
 end
 
 function M:get_keyword_pattern()

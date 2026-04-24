@@ -97,7 +97,7 @@ func TestSSE_BroadcastsBufferUpdateToConnectedTab(t *testing.T) {
 
 	// Create a real .simp file so the open call succeeds.
 	simpPath := filepath.Join(t.TempDir(), "a.simp")
-	assert.NoError(t, os.WriteFile(simpPath, []byte("pg> SELECT 1"), 0644))
+	assert.NoError(t, os.WriteFile(simpPath, []byte("|pg> SELECT 1"), 0644))
 
 	// Subscribe (long-lived GET) in a goroutine.
 	resp, err := http.Get(base + "/api/events")
@@ -109,7 +109,7 @@ func TestSSE_BroadcastsBufferUpdateToConnectedTab(t *testing.T) {
 	// Trigger an open event and then an edit event.
 	_, _ = postJSON(t, base, "/api/files/open", openRequest{Path: simpPath})
 	_, _ = postJSON(t, base, "/api/files/edit", editRequest{
-		Path: simpPath, BufferContents: "pg> SELECT 99", CursorByteOffset: 13,
+		Path: simpPath, BufferContents: "|pg> SELECT 99", CursorByteOffset: 13,
 	})
 
 	// First we should see file_opened, then buffer_updated.

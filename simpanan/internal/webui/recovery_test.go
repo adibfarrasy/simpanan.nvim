@@ -20,13 +20,13 @@ func withTempHome(t *testing.T) string {
 
 func TestFlushAndLoadRecovery_RoundTrip(t *testing.T) {
 	withTempHome(t)
-	a := writeSimp(t, "a.simp", "pg> SELECT 1")
-	b := writeSimp(t, "b.simp", "mg> db.users.find()")
+	a := writeSimp(t, "a.simp", "|pg> SELECT 1")
+	b := writeSimp(t, "b.simp", "|mg> db.users.find()")
 
 	src := NewBufferStore()
 	_, _ = src.Open(a)
 	_, _ = src.Open(b)
-	_, _ = src.Edit(b, "mg> db.users.findOne()", 22)
+	_, _ = src.Edit(b, "|mg> db.users.findOne()", 22)
 	_ = src.SwitchActive(b)
 	assert.NoError(t, src.FlushRecovery())
 
@@ -42,9 +42,9 @@ func TestFlushAndLoadRecovery_RoundTrip(t *testing.T) {
 	for _, f := range got {
 		gotMap[f.Path] = f
 	}
-	assert.Equal(t, "pg> SELECT 1", gotMap[a].BufferContents)
+	assert.Equal(t, "|pg> SELECT 1", gotMap[a].BufferContents)
 	assert.Equal(t, StatusClean, gotMap[a].Status)
-	assert.Equal(t, "mg> db.users.findOne()", gotMap[b].BufferContents)
+	assert.Equal(t, "|mg> db.users.findOne()", gotMap[b].BufferContents)
 	assert.Equal(t, StatusModified, gotMap[b].Status,
 		"buffer differs from disk after restore → modified")
 	assert.Equal(t, 22, gotMap[b].CursorByteOffset)
@@ -86,22 +86,22 @@ func TestLoadRecovery_UnknownVersionSkippedSilently(t *testing.T) {
 
 func TestLoadRecovery_ExternallyEditedDiskReflectedInStatus(t *testing.T) {
 	withTempHome(t)
-	a := writeSimp(t, "a.simp", "pg> SELECT 1")
+	a := writeSimp(t, "a.simp", "|pg> SELECT 1")
 
 	src := NewBufferStore()
 	_, _ = src.Open(a)
 	assert.NoError(t, src.FlushRecovery())
 
 	// External edit between sessions: someone else writes new content.
-	assert.NoError(t, os.WriteFile(a, []byte("pg> SELECT 999"), 0644))
+	assert.NoError(t, os.WriteFile(a, []byte("|pg> SELECT 999"), 0644))
 
 	dst := NewBufferStore()
 	assert.NoError(t, dst.LoadRecovery())
 
 	f, _ := dst.Get(a)
-	assert.Equal(t, "pg> SELECT 1", f.BufferContents,
+	assert.Equal(t, "|pg> SELECT 1", f.BufferContents,
 		"in-memory buffer survives the restart")
-	assert.Equal(t, "pg> SELECT 999", f.DiskContents,
+	assert.Equal(t, "|pg> SELECT 999", f.DiskContents,
 		"disk_contents reflects what is actually on disk now")
 	assert.Equal(t, StatusModified, f.Status,
 		"divergence between buffer and disk → modified")
@@ -109,7 +109,7 @@ func TestLoadRecovery_ExternallyEditedDiskReflectedInStatus(t *testing.T) {
 
 func TestLoadRecovery_VanishedDiskFileRestoredAsModified(t *testing.T) {
 	withTempHome(t)
-	a := writeSimp(t, "a.simp", "pg> SELECT 1")
+	a := writeSimp(t, "a.simp", "|pg> SELECT 1")
 
 	src := NewBufferStore()
 	_, _ = src.Open(a)
@@ -122,7 +122,7 @@ func TestLoadRecovery_VanishedDiskFileRestoredAsModified(t *testing.T) {
 	assert.NoError(t, dst.LoadRecovery())
 	f, ok := dst.Get(a)
 	assert.True(t, ok, "vanished file is still restored so user does not lose buffer")
-	assert.Equal(t, "pg> SELECT 1", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 1", f.BufferContents)
 	assert.Equal(t, "", f.DiskContents)
 	assert.Equal(t, StatusModified, f.Status)
 }
@@ -143,7 +143,7 @@ func TestLoadRecovery_ActiveSkippedIfNotInOpenFiles(t *testing.T) {
 
 func TestServerStartFlushOnShutdown(t *testing.T) {
 	withTempHome(t)
-	a := writeSimp(t, "a.simp", "pg> SELECT 1")
+	a := writeSimp(t, "a.simp", "|pg> SELECT 1")
 	_, srv, stop := startTestServer(t)
 	_, err := srv.buffers.Open(a)
 	assert.NoError(t, err)

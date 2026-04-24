@@ -32,7 +32,7 @@ func TestExecuteAPI_NonExistentConnectionFoldsErrorIntoResult(t *testing.T) {
 
 	// No connection registered → RunPipeline returns ("Error: …", nil).
 	code, body := postJSON(t, base, "/api/execute", executeRequest{
-		Selection: "missing> SELECT 1",
+		Selection: "|missing> SELECT 1",
 	})
 	assert.Equal(t, http.StatusOK, code)
 

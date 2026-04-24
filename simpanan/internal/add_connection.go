@@ -40,6 +40,9 @@ func AddConnection(label, uri string) error {
 	if strings.Contains(label, ">") {
 		return fmt.Errorf("Connection label cannot contain '>'.")
 	}
+	if strings.Contains(label, "|") {
+		return fmt.Errorf("Connection label cannot contain '|'.")
+	}
 	if uri == "" {
 		return fmt.Errorf("Empty connection uri.")
 	}

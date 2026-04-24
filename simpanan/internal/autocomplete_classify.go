@@ -36,9 +36,11 @@ type ContextClassification struct {
 	SqlAliases      map[string]string
 }
 
-// stageHeaderRe matches the start of a stage line: a label (no
-// whitespace, no '>'), optional whitespace, then '>'.
-var stageHeaderRe = regexp.MustCompile(`^([^\s>]+)\s*>`)
+// stageHeaderRe matches the start of a stage line: literal '|', a
+// label (no whitespace, no '>', no '|'), optional whitespace, then '>'.
+// The leading '|' makes stage starts unambiguous and gives the
+// connection-label autocomplete a deliberate trigger character.
+var stageHeaderRe = regexp.MustCompile(`^\|([^\s>|]+)\s*>`)
 
 // sqlAliasRe extracts top-level FROM/JOIN aliases of the form
 // `<table> [AS] <alias>`. Best-effort; CTE/subquery aliases are out of
@@ -76,11 +78,11 @@ func ClassifyContext(bufferText string, cursorPos int) ContextClassification {
 	}
 
 	// Cursor is on the same line as the header but BEFORE the '>': they
-	// are still typing the label.
+	// are still typing the label. STRICTLY less than: cursor exactly at
+	// headerEnd (just past the '>') means the label is committed and we
+	// should be classifying the body, not still suggesting labels.
 	lineStart := lastIndexOrZero(before, "\n")
-	if cursorPos <= lineStart+headerEndOffset(before, lineStart) {
-		// Defensive: shouldn't happen given findCurrentStage's contract,
-		// but if it does, treat as stage_start.
+	if cursorPos < lineStart+headerEndOffset(before, lineStart) {
 		return ContextClassification{
 			Context:    CtxStageStart,
 			Prefix:     prefix,

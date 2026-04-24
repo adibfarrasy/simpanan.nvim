@@ -47,7 +47,7 @@ func TestSuggestAPI_SqlKeywordPrefixSurfacesSelect(t *testing.T) {
 		Label: "pg", URI: "postgres://h/db",
 	})
 
-	buf := "pg> SEL"
+	buf := "|pg> SEL"
 	code, body := postJSON(t, base, "/api/suggest", suggestRequest{
 		BufferText: buf, CursorByteOffset: len(buf),
 	})

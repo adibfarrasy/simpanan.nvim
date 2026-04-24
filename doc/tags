@@ -1,3 +1,4 @@
-simpanan.nvim	simpanan.txt	/*simpanan.nvim*
-simpanan.list_connections()	simpanan.txt	/*simpanan.list_connections()*
 simpanan.execute()	simpanan.txt	/*simpanan.execute()*
+simpanan.list_connections()	simpanan.txt	/*simpanan.list_connections()*
+simpanan.nvim	simpanan.txt	/*simpanan.nvim*
+simpanan.refresh_schemas()	simpanan.txt	/*simpanan.refresh_schemas()*

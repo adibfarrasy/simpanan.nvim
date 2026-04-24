@@ -19,13 +19,13 @@ func writeSimp(t *testing.T, name, body string) string {
 }
 
 func TestBufferStore_OpenSimpFileLoadsContentsClean(t *testing.T) {
-	path := writeSimp(t, "analytics.simp", "pg> SELECT 1\n")
+	path := writeSimp(t, "analytics.simp", "|pg> SELECT 1\n")
 	s := NewBufferStore()
 
 	f, err := s.Open(path)
 	assert.NoError(t, err)
 	assert.Equal(t, path, f.Path)
-	assert.Equal(t, "pg> SELECT 1\n", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 1\n", f.BufferContents)
 	assert.Equal(t, f.BufferContents, f.DiskContents)
 	assert.Equal(t, StatusClean, f.Status)
 	assert.Equal(t, 0, f.CursorByteOffset)
@@ -64,24 +64,24 @@ func TestBufferStore_OpenRejectsAlreadyOpen(t *testing.T) {
 }
 
 func TestBufferStore_EditTransitionsToModified(t *testing.T) {
-	path := writeSimp(t, "a.simp", "pg> SELECT 1")
+	path := writeSimp(t, "a.simp", "|pg> SELECT 1")
 	s := NewBufferStore()
 	_, _ = s.Open(path)
 
-	f, err := s.Edit(path, "pg> SELECT 2", 12)
+	f, err := s.Edit(path, "|pg> SELECT 2", 12)
 	assert.NoError(t, err)
 	assert.Equal(t, StatusModified, f.Status)
 	assert.Equal(t, 12, f.CursorByteOffset)
-	assert.Equal(t, "pg> SELECT 2", f.BufferContents)
-	assert.Equal(t, "pg> SELECT 1", f.DiskContents, "disk contents unchanged until save")
+	assert.Equal(t, "|pg> SELECT 2", f.BufferContents)
+	assert.Equal(t, "|pg> SELECT 1", f.DiskContents, "disk contents unchanged until save")
 }
 
 func TestBufferStore_EditBackToDiskReturnsToClean(t *testing.T) {
-	path := writeSimp(t, "a.simp", "pg> SELECT 1")
+	path := writeSimp(t, "a.simp", "|pg> SELECT 1")
 	s := NewBufferStore()
 	_, _ = s.Open(path)
-	_, _ = s.Edit(path, "pg> SELECT 2", 0)
-	f, err := s.Edit(path, "pg> SELECT 1", 0)
+	_, _ = s.Edit(path, "|pg> SELECT 2", 0)
+	f, err := s.Edit(path, "|pg> SELECT 1", 0)
 	assert.NoError(t, err)
 	assert.Equal(t, StatusClean, f.Status, "edit back to disk contents → clean")
 }
@@ -93,19 +93,19 @@ func TestBufferStore_EditUnknownPath(t *testing.T) {
 }
 
 func TestBufferStore_SaveWritesBufferToDiskAndClears(t *testing.T) {
-	path := writeSimp(t, "a.simp", "pg> SELECT 1")
+	path := writeSimp(t, "a.simp", "|pg> SELECT 1")
 	s := NewBufferStore()
 	_, _ = s.Open(path)
-	_, _ = s.Edit(path, "pg> SELECT 42", 0)
+	_, _ = s.Edit(path, "|pg> SELECT 42", 0)
 
 	assert.NoError(t, s.Save(path))
 	onDisk, err := os.ReadFile(path)
 	assert.NoError(t, err)
-	assert.Equal(t, "pg> SELECT 42", string(onDisk))
+	assert.Equal(t, "|pg> SELECT 42", string(onDisk))
 
 	f, _ := s.Get(path)
 	assert.Equal(t, StatusClean, f.Status)
-	assert.Equal(t, "pg> SELECT 42", f.DiskContents)
+	assert.Equal(t, "|pg> SELECT 42", f.DiskContents)
 }
 
 func TestBufferStore_SaveUnknownPath(t *testing.T) {

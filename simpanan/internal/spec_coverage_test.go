@@ -89,7 +89,7 @@ func TestURIConnTypeRejectsUnknownSchemes(t *testing.T) {
 func TestJqLabelNeverPersistedByAdd(t *testing.T) {
 	home := withTempHome(t)
 	seedConnections(t, home, nil)
-	_, err := HandleAddConnection([]string{"jq>jq://"})
+	_, err := HandleAddConnection([]string{"|jq>jq://"})
 	assert.Error(t, err)
 
 	conns, err := GetConnectionList()
@@ -288,7 +288,7 @@ func TestChainedStagesAreReadOnly_RejectsNonTerminalWrite(t *testing.T) {
 	// before any network I/O. A conforming implementation produces a
 	// validation error whose message references the invariant.
 	out, err := HandleRunQuery([]string{
-		"::pg> UPDATE users SET active = true::pg> SELECT * FROM users",
+		"::|pg> UPDATE users SET active = true::|pg> SELECT * FROM users",
 		"",
 	})
 	// HandleRunQuery folds errors into the returned string. The current

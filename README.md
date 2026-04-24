@@ -1,5 +1,5 @@
 # simpanan.nvim 🗄️
-Run any query by adding `{your_connection}>` prefix!
+Run any query by adding `|{your_connection}>` prefix!
 On any file, right on your editor!
 
 The vision for this Neovim plugin is to:
@@ -15,12 +15,12 @@ The vision for this Neovim plugin is to:
 ### Basic Query
 Add connection prefix to run query.
 
-[simpanan.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/f758b82b-b9d7-493d-8425-e64cfe2d952f)
+# TODO video
 
 ### Data Pipelining
 Grab a data from one database to another database. Useful if your project/s use microservice architecture with multiple databases.
 
-[Screencast from 2024-04-21 15-26-20.webm](https://github.com/adibfarrasy/simpanan.nvim/assets/28698955/b5cd46e2-54bf-4bdd-9822-a8eee938f3a6)
+# TODO video
 
 
 ## Requirements
@@ -28,30 +28,47 @@ Grab a data from one database to another database. Useful if your project/s use 
 - Neovim 0.9+ (for `vim.json` and `vim.uv`)
 
 ## Installation
-lazy.nvim:
+
+### lazy.nvim
+
 ```lua
 {
   'adibfarrasy/simpanan.nvim',
   dependencies = { 'MunifTanjim/nui.nvim' },
-  ft = 'simpanan',                     -- lazy-load on *.simp buffers
-  cmd = { 'Simpanan' },                -- …and on :Simpanan commands
+  ft = 'simpanan',                       -- lazy-load on *.simp buffers
+  cmd = { 'Simpanan' },                  -- …and on :Simpanan commands
   build = 'make -C simpanan',
   config = function()
-    require('simpanan').setup({})
-    vim.keymap.set('n', '<leader>sc', require('simpanan').list_connections)
-    vim.keymap.set('v', '<leader>se', require('simpanan').execute)
+    require('simpanan').setup {}
+    vim.keymap.set('n', '<leader>sic', require('simpanan').list_connections)
+    vim.keymap.set('v', '<leader>sie', require('simpanan').execute)
   end,
 },
 ```
 
-After the first install, run `:UpdateRemotePlugins` once and restart Neovim so the Go remote-plugin manifest is picked up.
+### Without a plugin manager
+
+Clone the repo somewhere on your `runtimepath` (e.g. `~/.config/nvim/pack/simpanan/start/simpanan.nvim`),
+run `make -C simpanan` once to build the Go backend and write
+`~/.local/share/nvim/rplugin.vim`, then add to your `init.lua`:
+
+```lua
+require('simpanan').setup {}
+vim.keymap.set('n', '<leader>sic', require('simpanan').list_connections)
+vim.keymap.set('v', '<leader>sie', require('simpanan').execute)
+```
+
+After the first install (either method), run `:UpdateRemotePlugins`
+once and restart Neovim so the Go remote-plugin manifest is picked up.
 
 ## Getting Started
-1. Register your connections with `<leader>sc` → press `a` in the popup → type
+1. Register your connections with `<leader>sic` → press `a` in the popup → type
    `label>uri` (e.g. `pg0>postgres://user:pass@localhost:5432/app`). Delete
-   with `d`.
+   with `d`. (The popup's add form takes the bare `label>uri` form; the
+   leading `|` is only used in the editor buffer itself.)
 2. Open any `.simp` file (or just any buffer), write a query prefixed with
-   `label>`, visually select it, and press `<leader>se`.
+   `|label>` (e.g. `|pg0> SELECT * FROM users`), visually select it, and
+   press `<leader>sie`.
 3. Want a tour? See [`examples/`](./examples/) for annotated `.simp` files
    covering basic stages, pipelining with `{{jq}}` placeholders, and
    cross-database workflows.
@@ -91,17 +108,24 @@ require('simpanan').setup({
 ### Autocomplete (nvim-cmp)
 
 `require('simpanan').setup()` registers a `simpanan` source with
-`nvim-cmp` (if installed). Add it to your `cmp.setup` sources list for
-`.simp` buffers:
+`nvim-cmp` (if installed). To surface its suggestions only in `.simp`
+buffers (filetype `simpanan`), add a per-filetype source list:
 
 ```lua
-require('cmp').setup({
+local cmp = require('cmp')
+-- after cmp.setup{...}:
+cmp.setup.filetype('simpanan', {
   sources = cmp.config.sources({
     { name = 'simpanan' },
-    -- ... your other sources
+    { name = 'path' },
   }),
 })
 ```
+
+Triggers on `|`, `.`, `{`, `>`, `$` plus any word character, with an
+80ms debounce. Suggestions only appear for connection labels you've
+registered, since the classifier needs to know what type a label maps
+to. A label that isn't registered silently produces no suggestions.
 
 ## FAQ
 - What's with the name?

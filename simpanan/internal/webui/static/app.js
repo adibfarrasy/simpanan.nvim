@@ -19,6 +19,7 @@ import { keymap } from "https://esm.sh/@codemirror/view@6.26.3";
 import { Annotation } from "https://esm.sh/@codemirror/state@6.4.1";
 import { autocompletion } from "https://esm.sh/@codemirror/autocomplete@6.16.0";
 import { defaultKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6.5.0";
+import { simpStreamLanguage } from "/static/simp_lang.js";
 
 const editorContainer = document.getElementById("editor");
 const tabsEl = document.getElementById("tabs");
@@ -42,7 +43,12 @@ const state = {
 	view: null,
 	editTimer: null,
 	editDelayMs: 100,
+	// Live label → connection-type map consumed by the simp language
+	// extension. Wrapped in {value: …} so the StreamLanguage parser
+	// holds a stable reference and always sees the latest map.
+	connTypes: new Map(),
 };
+const connTypesRef = { value: state.connTypes };
 
 // ---- HTTP helpers --------------------------------------------------
 
@@ -74,6 +80,7 @@ function ensureView(initialContents) {
 		extensions: [
 			basicSetup,
 			keymap.of([indentWithTab, ...defaultKeymap]),
+			simpStreamLanguage(connTypesRef),
 			autocompletion({
 				override: [simpCompletion],
 				closeOnBlur: true,
@@ -434,10 +441,42 @@ const connLabelInput = document.getElementById("conn-label");
 const connUriInput = document.getElementById("conn-uri");
 const connErrorEl = document.getElementById("conn-error");
 
+// schemeToConnType mirrors common.URI.ConnType on the server: maps a
+// URI scheme to the canonical connection type used by the schema cache
+// and the syntax highlighter.
+function schemeToConnType(scheme) {
+	switch (scheme) {
+		case "postgres":
+		case "postgresql":
+			return "postgres";
+		case "mysql":
+			return "mysql";
+		case "mongodb":
+		case "mongodb+srv":
+			return "mongo";
+		case "redis":
+		case "rediss":
+			return "redis";
+	}
+	return null;
+}
+
+function ingestConnections(conns) {
+	state.connTypes = new Map();
+	for (const c of conns) {
+		const m = (c.uri || "").match(/^([a-z+]+):\/\//i);
+		const ct = m ? schemeToConnType(m[1].toLowerCase()) : null;
+		if (ct) state.connTypes.set(c.label, ct);
+	}
+	connTypesRef.value = state.connTypes;
+}
+
 async function refreshConnections() {
 	try {
 		const data = await api("/api/connections");
-		renderConnectionsList(data.connections || []);
+		const conns = data.connections || [];
+		ingestConnections(conns);
+		renderConnectionsList(conns);
 	} catch (err) {
 		connErrorEl.textContent = "Failed to load connections: " + err.message;
 	}
@@ -556,13 +595,21 @@ saveBtn.addEventListener("click", saveFile);
 runBtn.addEventListener("click", runSelection);
 
 async function bootstrap() {
-	try {
-		const list = await api("/api/files");
-		state.files = new Map(list.files.map((f) => [f.path, f]));
-		state.active = list.active || "";
-	} catch (err) {
-		console.warn("initial state load failed", err);
-	}
+	// Load files and connections in parallel so the editor lights up
+	// quickly even if either endpoint is slow.
+	const filesP = api("/api/files").catch((err) => {
+		console.warn("initial files load failed", err);
+		return { files: [], active: "" };
+	});
+	const connsP = api("/api/connections").catch((err) => {
+		console.warn("initial connections load failed", err);
+		return { connections: [] };
+	});
+	const [list, connsResp] = await Promise.all([filesP, connsP]);
+	state.files = new Map((list.files || []).map((f) => [f.path, f]));
+	state.active = list.active || "";
+	ingestConnections(connsResp.connections || []);
+
 	renderTabs();
 	renderActive();
 	connectEvents();

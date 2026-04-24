@@ -24,7 +24,9 @@ function M.new()
 end
 
 function M:is_available()
-	return vim.bo.filetype == "simp"
+	-- ftdetect/simpanan.vim sets the filetype to `simpanan` for *.simp
+	-- files; matching it here is what gates the cmp source.
+	return vim.bo.filetype == "simpanan"
 end
 
 function M:get_trigger_characters()

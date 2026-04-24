@@ -1,14 +1,26 @@
-// simpanan webui — vanilla JS app.
+// simpanan webui — CodeMirror 6 + vanilla JS app.
 //
-// State model:
-//   files: Map<path, OpenFile>
-//   active: string (the active path, "" if none)
+// State:
+//   files: Map<path, OpenFile>      (server-canonical mirror)
+//   active: string                   (active path, "" if none)
+//   view: EditorView | null          (CM6 instance, null until first file open)
 //
-// Server is canonical. The browser maintains a local mirror, sends
-// edits as POST /api/files/edit (debounced), and listens to SSE for
-// updates from itself + other tabs.
+// Server is canonical. The browser maintains a local mirror, sends edits
+// as POST /api/files/edit (debounced), and listens to /api/events SSE
+// for updates from itself + other tabs.
+//
+// CM6 is loaded as ES modules from esm.sh — no bundler, no node
+// toolchain. First-load requires internet; subsequent loads are
+// browser-cached. For strict offline use, swap the imports for a
+// vendored bundle.
 
-const editEl = document.getElementById("editor");
+import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
+import { keymap } from "https://esm.sh/@codemirror/view@6.26.3";
+import { Annotation } from "https://esm.sh/@codemirror/state@6.4.1";
+import { autocompletion } from "https://esm.sh/@codemirror/autocomplete@6.16.0";
+import { defaultKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6.5.0";
+
+const editorContainer = document.getElementById("editor");
 const tabsEl = document.getElementById("tabs");
 const activePathEl = document.getElementById("active-path");
 const modifiedEl = document.getElementById("modified-indicator");
@@ -20,13 +32,14 @@ const runBtn = document.getElementById("run-btn");
 const resultPanel = document.getElementById("result-panel");
 const resultBody = document.getElementById("result-body");
 
+// Loop guard: when we apply an edit received from SSE, we annotate the
+// CM transaction so our own change handler skips the broadcast.
+const remoteAnnotation = Annotation.define();
+
 const state = {
 	files: new Map(),
 	active: "",
-	// Suppresses local input handler reactions when the textarea is
-	// programmatically updated from a remote event. Without this we'd
-	// loop on our own broadcasts.
-	applyingRemote: false,
+	view: null,
 	editTimer: null,
 	editDelayMs: 100,
 };
@@ -48,7 +61,146 @@ async function api(path, opts = {}) {
 	return text ? JSON.parse(text) : null;
 }
 
-// ---- Rendering -----------------------------------------------------
+// ---- CodeMirror integration ---------------------------------------
+
+function ensureView(initialContents) {
+	if (state.view) return state.view;
+	editorContainer.removeAttribute("data-empty");
+	editorContainer.innerHTML = "";
+
+	state.view = new EditorView({
+		parent: editorContainer,
+		doc: initialContents || "",
+		extensions: [
+			basicSetup,
+			keymap.of([indentWithTab, ...defaultKeymap]),
+			autocompletion({
+				override: [simpCompletion],
+				closeOnBlur: true,
+				activateOnTyping: true,
+			}),
+			EditorView.theme({
+				"&": { height: "100%", backgroundColor: "var(--bg)" },
+			}),
+			EditorView.updateListener.of(handleViewUpdate),
+		],
+	});
+	return state.view;
+}
+
+function destroyView() {
+	if (!state.view) return;
+	state.view.destroy();
+	state.view = null;
+	editorContainer.innerHTML = "";
+	editorContainer.setAttribute("data-empty", "true");
+}
+
+function getDocText() {
+	return state.view ? state.view.state.doc.toString() : "";
+}
+
+function getCursorOffset() {
+	return state.view ? state.view.state.selection.main.head : 0;
+}
+
+function getSelectionText() {
+	if (!state.view) return "";
+	const sel = state.view.state.selection.main;
+	if (sel.empty) return "";
+	return state.view.state.sliceDoc(sel.from, sel.to);
+}
+
+function setDocFromRemote(text) {
+	if (!state.view) {
+		ensureView(text);
+		return;
+	}
+	state.view.dispatch({
+		changes: { from: 0, to: state.view.state.doc.length, insert: text },
+		annotations: remoteAnnotation.of(true),
+	});
+}
+
+function handleViewUpdate(update) {
+	if (update.selectionSet || update.docChanged) {
+		updateCursorInfo();
+	}
+	if (!update.docChanged) return;
+	// Skip self-loops on remote-applied transactions.
+	const isRemote = update.transactions.some((tr) =>
+		tr.annotation(remoteAnnotation) === true
+	);
+	if (isRemote) return;
+	scheduleEditPush();
+}
+
+function updateCursorInfo() {
+	cursorInfoEl.textContent = `cursor ${getCursorOffset()}`;
+}
+
+// ---- Suggestion source -------------------------------------------
+
+const SUGGESTION_KIND_ICON = {
+	connection_label: "module",
+	sql_keyword: "keyword",
+	database: "namespace",
+	table: "class",
+	column: "property",
+	mongo_collection: "class",
+	mongo_operation: "function",
+	mongo_operator: "interface",
+	mongo_field: "property",
+	redis_command: "function",
+	jq_operator: "function",
+	jq_path: "variable",
+};
+
+async function simpCompletion(context) {
+	if (!state.active) return null;
+
+	const text = context.state.doc.toString();
+	const cursor = context.pos;
+
+	let res;
+	try {
+		res = await api("/api/suggest", {
+			method: "POST",
+			body: { buffer_text: text, cursor_byte_offset: cursor },
+		});
+	} catch (err) {
+		return null;
+	}
+	const items = res.suggestions || [];
+	if (items.length === 0) return null;
+
+	// Match the Go classifier's wordPrefixRe so CM replaces the right
+	// slice when accepting.
+	const before = text.slice(0, cursor);
+	let from = cursor;
+	for (let i = cursor; i > 0; i--) {
+		const c = before.charCodeAt(i - 1);
+		const ch = before[i - 1];
+		const isIdent =
+			(c >= 0x41 && c <= 0x5a) ||
+			(c >= 0x61 && c <= 0x7a) ||
+			(c >= 0x30 && c <= 0x39) ||
+			ch === "_" || ch === "." || ch === "$" || ch === "\\";
+		if (!isIdent) break;
+		from = i - 1;
+	}
+
+	return {
+		from,
+		options: items.map((s) => ({
+			label: s.text,
+			type: SUGGESTION_KIND_ICON[s.kind] || "text",
+			detail: s.kind,
+		})),
+	};
+}
+
+// ---- Tabs / state mirror ------------------------------------------
 
 function renderTabs() {
 	tabsEl.innerHTML = "";
@@ -87,30 +239,24 @@ function renderTabs() {
 function renderActive() {
 	const f = state.files.get(state.active);
 	if (!f) {
-		editEl.value = "";
-		editEl.disabled = true;
+		destroyView();
 		runBtn.disabled = true;
 		activePathEl.textContent = "no file open";
 		modifiedEl.textContent = "";
 		cursorInfoEl.textContent = "";
 		return;
 	}
-	state.applyingRemote = true;
-	if (editEl.value !== f.buffer_contents) {
-		editEl.value = f.buffer_contents;
-	}
-	editEl.disabled = false;
-	runBtn.disabled = false;
-	state.applyingRemote = false;
 
+	if (!state.view) {
+		ensureView(f.buffer_contents);
+	} else if (getDocText() !== f.buffer_contents) {
+		setDocFromRemote(f.buffer_contents);
+	}
+	runBtn.disabled = false;
 	activePathEl.textContent = f.path;
 	modifiedEl.textContent = f.status === "modified" ? "modified" : "";
 	updateCursorInfo();
-}
-
-function updateCursorInfo() {
-	const pos = editEl.selectionStart;
-	cursorInfoEl.textContent = `cursor ${pos}`;
+	if (state.view) state.view.focus();
 }
 
 function setConnectionStatus(label, klass) {
@@ -119,7 +265,7 @@ function setConnectionStatus(label, klass) {
 	if (klass) connStatusEl.classList.add(klass);
 }
 
-// ---- Local actions -------------------------------------------------
+// ---- Local actions ------------------------------------------------
 
 async function openFile() {
 	const path = prompt("Path to .simp file:");
@@ -141,7 +287,7 @@ async function saveFile() {
 		const f = await api("/api/files/save", { method: "POST", body: { path: state.active } });
 		state.files.set(f.path, f);
 		renderTabs();
-		renderActive();
+		modifiedEl.textContent = f.status === "modified" ? "modified" : "";
 	} catch (err) {
 		alert("Save failed: " + err.message);
 	}
@@ -152,7 +298,6 @@ async function closeFile(path) {
 		await api("/api/files/close", { method: "POST", body: { path } });
 		state.files.delete(path);
 		if (state.active === path) {
-			// Promote some other open file or clear.
 			const next = state.files.keys().next().value || "";
 			state.active = next;
 		}
@@ -175,7 +320,6 @@ async function switchActive(path) {
 }
 
 function scheduleEditPush() {
-	if (state.applyingRemote) return;
 	if (!state.active) return;
 	clearTimeout(state.editTimer);
 	state.editTimer = setTimeout(pushEdit, state.editDelayMs);
@@ -184,17 +328,16 @@ function scheduleEditPush() {
 async function pushEdit() {
 	const path = state.active;
 	if (!path) return;
-	const buffer_contents = editEl.value;
-	const cursor_byte_offset = editEl.selectionStart;
 	try {
 		const f = await api("/api/files/edit", {
 			method: "POST",
-			body: { path, buffer_contents, cursor_byte_offset },
+			body: {
+				path,
+				buffer_contents: getDocText(),
+				cursor_byte_offset: getCursorOffset(),
+			},
 		});
 		state.files.set(f.path, f);
-		// We do NOT call renderActive here — that would clobber the
-		// user's cursor mid-edit. Just update tab state for the modified
-		// indicator.
 		renderTabs();
 		modifiedEl.textContent = f.status === "modified" ? "modified" : "";
 	} catch (err) {
@@ -202,19 +345,38 @@ async function pushEdit() {
 	}
 }
 
-// ---- SSE event handling --------------------------------------------
+// ---- Execute ------------------------------------------------------
+
+function showResult(text) {
+	resultBody.textContent = text;
+	resultPanel.hidden = false;
+}
+
+async function runSelection() {
+	const selection = getSelectionText();
+	if (!selection.trim()) {
+		showResult("Select one or more pipeline stages first.");
+		return;
+	}
+	showResult("running…");
+	try {
+		const data = await api("/api/execute", {
+			method: "POST",
+			body: { selection },
+		});
+		showResult(data.result || "(empty result)");
+	} catch (err) {
+		showResult("Request failed: " + err.message);
+	}
+}
+
+// ---- SSE event handling -------------------------------------------
 
 function applyRemoteFile(f) {
 	state.files.set(f.path, f);
 	if (f.path === state.active) {
-		// Only restamp the textarea if the remote content differs from
-		// what's local — otherwise we'd reset cursor on our own echo.
-		if (editEl.value !== f.buffer_contents) {
-			const cursor = editEl.selectionStart;
-			state.applyingRemote = true;
-			editEl.value = f.buffer_contents;
-			editEl.selectionStart = editEl.selectionEnd = Math.min(cursor, f.buffer_contents.length);
-			state.applyingRemote = false;
+		if (getDocText() !== f.buffer_contents) {
+			setDocFromRemote(f.buffer_contents);
 		}
 		modifiedEl.textContent = f.status === "modified" ? "modified" : "";
 	}
@@ -261,294 +423,7 @@ function connectEvents() {
 	};
 }
 
-// ---- Bootstrap -----------------------------------------------------
-
-async function bootstrap() {
-	try {
-		const list = await api("/api/files");
-		state.files = new Map(list.files.map((f) => [f.path, f]));
-		state.active = list.active || "";
-	} catch (err) {
-		console.warn("initial state load failed", err);
-	}
-	renderTabs();
-	renderActive();
-	connectEvents();
-}
-
-editEl.addEventListener("input", scheduleEditPush);
-editEl.addEventListener("keyup", updateCursorInfo);
-editEl.addEventListener("click", updateCursorInfo);
-
-window.addEventListener("keydown", (e) => {
-	if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-		e.preventDefault();
-		saveFile();
-	}
-	if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-		e.preventDefault();
-		openFile();
-	}
-	if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-		e.preventDefault();
-		runSelection();
-	}
-});
-
-// ---- Execute -------------------------------------------------------
-
-function getSelectionText() {
-	if (editEl.disabled) return "";
-	const start = editEl.selectionStart;
-	const end = editEl.selectionEnd;
-	if (start === end) return ""; // explicit selection required
-	return editEl.value.slice(start, end);
-}
-
-function showResult(text) {
-	resultBody.textContent = text;
-	resultPanel.hidden = false;
-}
-
-async function runSelection() {
-	const selection = getSelectionText();
-	if (!selection.trim()) {
-		showResult("Select one or more pipeline stages first.");
-		return;
-	}
-	showResult("running…");
-	try {
-		const data = await api("/api/execute", {
-			method: "POST",
-			body: { selection },
-		});
-		showResult(data.result || "(empty result)");
-	} catch (err) {
-		showResult("Request failed: " + err.message);
-	}
-}
-
-// ---- Autocomplete --------------------------------------------------
-
-const suggestionsEl = document.getElementById("suggestions");
-
-const TRIGGER_CHARS = new Set([".", "{", ">", "$"]);
-const SUGGEST_DEBOUNCE_MS = 80;
-
-let suggestTimer = null;
-let suggestState = {
-	open: false,
-	items: [],
-	selected: -1,
-	// The (start, end) byte range of the prefix the suggestion will
-	// replace when accepted. Computed at popup-open time and updated
-	// as the user types into the prefix.
-	prefixStart: 0,
-	prefixEnd: 0,
-};
-
-// Mirror element used to measure the cursor's pixel coordinates inside
-// the textarea. Created lazily.
-let cursorMirror = null;
-
-function ensureCursorMirror() {
-	if (cursorMirror) return cursorMirror;
-	cursorMirror = document.createElement("div");
-	cursorMirror.style.cssText = `
-		position:absolute; visibility:hidden; white-space:pre-wrap;
-		word-wrap:break-word; overflow-wrap:break-word; top:0; left:0;
-	`;
-	document.body.appendChild(cursorMirror);
-	return cursorMirror;
-}
-
-function caretCoords() {
-	const m = ensureCursorMirror();
-	const cs = window.getComputedStyle(editEl);
-	for (const prop of [
-		"font-family", "font-size", "font-weight", "line-height",
-		"letter-spacing", "padding-top", "padding-right",
-		"padding-bottom", "padding-left", "border-top-width",
-		"border-right-width", "border-bottom-width", "border-left-width",
-		"box-sizing", "white-space", "word-wrap", "tab-size",
-	]) {
-		m.style.setProperty(prop, cs.getPropertyValue(prop));
-	}
-	const rect = editEl.getBoundingClientRect();
-	m.style.width = rect.width + "px";
-
-	const pos = editEl.selectionStart;
-	m.textContent = editEl.value.slice(0, pos);
-	const marker = document.createElement("span");
-	marker.textContent = "​";
-	m.appendChild(marker);
-
-	const offsetTop = marker.offsetTop;
-	const offsetLeft = marker.offsetLeft;
-
-	return {
-		top: rect.top + offsetTop - editEl.scrollTop,
-		left: rect.left + offsetLeft - editEl.scrollLeft,
-	};
-}
-
-function closeSuggestions() {
-	suggestState.open = false;
-	suggestState.items = [];
-	suggestState.selected = -1;
-	suggestionsEl.hidden = true;
-}
-
-function renderSuggestions() {
-	suggestionsEl.innerHTML = "";
-	suggestState.items.forEach((s, i) => {
-		const li = document.createElement("li");
-		li.className = "suggestion" + (i === suggestState.selected ? " active" : "");
-		const text = document.createElement("span");
-		text.className = "sug-text";
-		text.textContent = s.text;
-		const kind = document.createElement("span");
-		kind.className = "sug-kind";
-		kind.textContent = s.kind;
-		li.appendChild(text);
-		li.appendChild(kind);
-		li.addEventListener("mousedown", (e) => {
-			// mousedown (not click) so we accept before the textarea
-			// loses focus to the popup.
-			e.preventDefault();
-			acceptSuggestion(i);
-		});
-		suggestionsEl.appendChild(li);
-	});
-}
-
-function positionSuggestions() {
-	const { top, left } = caretCoords();
-	const lineHeight = parseFloat(window.getComputedStyle(editEl).lineHeight) || 18;
-	suggestionsEl.style.top = (top + lineHeight) + "px";
-	suggestionsEl.style.left = left + "px";
-}
-
-function showSuggestions(items, prefixStart, prefixEnd) {
-	if (!items || items.length === 0) {
-		closeSuggestions();
-		return;
-	}
-	suggestState.open = true;
-	suggestState.items = items;
-	suggestState.selected = 0;
-	suggestState.prefixStart = prefixStart;
-	suggestState.prefixEnd = prefixEnd;
-	renderSuggestions();
-	suggestionsEl.hidden = false;
-	positionSuggestions();
-}
-
-function moveSelection(delta) {
-	if (!suggestState.open || suggestState.items.length === 0) return;
-	const n = suggestState.items.length;
-	suggestState.selected = (suggestState.selected + delta + n) % n;
-	renderSuggestions();
-}
-
-function acceptSuggestion(index) {
-	const i = index ?? suggestState.selected;
-	const item = suggestState.items[i];
-	if (!item) return;
-	const before = editEl.value.slice(0, suggestState.prefixStart);
-	const after = editEl.value.slice(editEl.selectionStart);
-	editEl.value = before + item.text + after;
-	const newCursor = before.length + item.text.length;
-	editEl.selectionStart = editEl.selectionEnd = newCursor;
-	closeSuggestions();
-	scheduleEditPush();
-}
-
-// Compute the byte offset where the current "word" prefix begins,
-// matching the Go classifier's wordPrefixRe (identifier-with-dots).
-function prefixStartOffset(text, cursor) {
-	let i = cursor;
-	while (i > 0) {
-		const c = text.charCodeAt(i - 1);
-		const ch = text[i - 1];
-		const isIdent =
-			(c >= 0x41 && c <= 0x5a) ||  // A-Z
-			(c >= 0x61 && c <= 0x7a) ||  // a-z
-			(c >= 0x30 && c <= 0x39) ||  // 0-9
-			ch === "_" || ch === "." || ch === "$" || ch === "\\";
-		if (!isIdent) break;
-		i--;
-	}
-	return i;
-}
-
-async function fetchSuggestions(forced) {
-	const buffer_text = editEl.value;
-	const cursor_byte_offset = editEl.selectionStart;
-	try {
-		const res = await api("/api/suggest", {
-			method: "POST",
-			body: { buffer_text, cursor_byte_offset },
-		});
-		const items = res.suggestions || [];
-		if (items.length === 0) {
-			if (forced) closeSuggestions();
-			else closeSuggestions();
-			return;
-		}
-		const start = prefixStartOffset(buffer_text, cursor_byte_offset);
-		showSuggestions(items, start, cursor_byte_offset);
-	} catch (err) {
-		closeSuggestions();
-	}
-}
-
-function scheduleSuggestions(forced) {
-	clearTimeout(suggestTimer);
-	suggestTimer = setTimeout(() => fetchSuggestions(forced), SUGGEST_DEBOUNCE_MS);
-}
-
-editEl.addEventListener("keydown", (e) => {
-	if (suggestState.open) {
-		if (e.key === "ArrowDown") { e.preventDefault(); moveSelection(1); return; }
-		if (e.key === "ArrowUp")   { e.preventDefault(); moveSelection(-1); return; }
-		if (e.key === "Enter" || e.key === "Tab") {
-			e.preventDefault();
-			acceptSuggestion();
-			return;
-		}
-		if (e.key === "Escape") {
-			e.preventDefault();
-			closeSuggestions();
-			return;
-		}
-	}
-});
-
-editEl.addEventListener("input", () => {
-	if (state.applyingRemote) return;
-	// Trigger characters or any non-whitespace keystroke kicks off a
-	// fresh suggest. Whitespace closes a popup if one is open.
-	const last = editEl.value[editEl.selectionStart - 1] || "";
-	if (last === "" || /\s/.test(last)) {
-		closeSuggestions();
-		return;
-	}
-	if (TRIGGER_CHARS.has(last) || /[\w$]/.test(last)) {
-		scheduleSuggestions(false);
-	}
-});
-
-editEl.addEventListener("blur", closeSuggestions);
-editEl.addEventListener("scroll", () => {
-	if (suggestState.open) positionSuggestions();
-});
-
-openBtn.addEventListener("click", openFile);
-saveBtn.addEventListener("click", saveFile);
-runBtn.addEventListener("click", runSelection);
-
-// ---- Connections popup ---------------------------------------------
+// ---- Connections popup --------------------------------------------
 
 const connectionsBtn = document.getElementById("connections-btn");
 const modalBackdrop = document.getElementById("modal-backdrop");
@@ -655,8 +530,42 @@ modalCloseBtn.addEventListener("click", closeConnectionsModal);
 modalBackdrop.addEventListener("click", (e) => {
 	if (e.target === modalBackdrop) closeConnectionsModal();
 });
+
+// ---- Global key bindings + bootstrap -----------------------------
+
 window.addEventListener("keydown", (e) => {
-	if (e.key === "Escape" && !modalBackdrop.hidden) closeConnectionsModal();
+	if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+		e.preventDefault();
+		saveFile();
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key === "o") {
+		e.preventDefault();
+		openFile();
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+		e.preventDefault();
+		runSelection();
+	}
+	if (e.key === "Escape" && !modalBackdrop.hidden) {
+		closeConnectionsModal();
+	}
 });
+
+openBtn.addEventListener("click", openFile);
+saveBtn.addEventListener("click", saveFile);
+runBtn.addEventListener("click", runSelection);
+
+async function bootstrap() {
+	try {
+		const list = await api("/api/files");
+		state.files = new Map(list.files.map((f) => [f.path, f]));
+		state.active = list.active || "";
+	} catch (err) {
+		console.warn("initial state load failed", err);
+	}
+	renderTabs();
+	renderActive();
+	connectEvents();
+}
 
 bootstrap();

@@ -48,7 +48,8 @@ services:
     volumes:
       - ./seed/mysql:/docker-entrypoint-initdb.d:ro
     command:
-      - --default-authentication-plugin=caching_sha2_password
+      # --default-authentication-plugin was removed in MySQL 8.4;
+      # caching_sha2_password is the default in 8.x anyway.
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     healthcheck:

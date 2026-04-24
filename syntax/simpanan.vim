@@ -5,10 +5,11 @@ endif
 " Line comment: //...
 syntax match simpananComment "^\s*//.*$"
 
-" Connection prefix at start of a (trimmed) line: label>
-" Captures labels like `pg0`, `my-db`, `jq`, etc. The `>` is part of the match.
-syntax match simpananConnLabel "^\s*\S\+>" contains=simpananConnSep
-syntax match simpananConnSep ">" contained
+" Connection prefix at start of a (trimmed) line: |label>
+" Captures labels like `pg0`, `my-db`, `jq`, etc. The leading `|` and the
+" trailing `>` are both part of the match and styled as separators.
+syntax match simpananConnLabel "^\s*[|]\S\+>" contains=simpananConnSep
+syntax match simpananConnSep "[|>]" contained
 
 " jq placeholder: {{ ... }}
 syntax region simpananPlaceholder start="{{" end="}}" contains=simpananPlaceholderDelim

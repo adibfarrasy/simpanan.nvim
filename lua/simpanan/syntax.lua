@@ -198,14 +198,16 @@ function M.setup_sql_regions(bufnr)
 		end
 		includes_installed_by_buf[bufnr] = installed
 
-		-- Create a region per label. Stages span from a `label>` line
-		-- to (but not including) the next stage's `label>` line, or to
-		-- end-of-file.
+		-- Create a region per label. Stages span from a `|label>` line
+		-- to (but not including) the next stage's `|label>` line, or to
+		-- end-of-file. The `[|]` character class is used instead of a
+		-- bare `|` to avoid any Vim-command-separator ambiguity inside
+		-- the syntax-region pattern argument.
 		local function make_region(label, cluster, group_prefix)
 			local esc = vim_regex_escape(label)
 			local group = group_prefix .. label:gsub("[^%w]", "_")
 			vim.cmd(string.format(
-				[[syntax region %s start="^\s*%s>" end="^\s*\S\+>"me=s-1 end="\%%$" keepend contains=@%s,simpananConnLabel,simpananComment,simpananPlaceholder]],
+				[[syntax region %s start="^\s*[|]%s>" end="^\s*[|]\S\+>"me=s-1 end="\%%$" keepend contains=@%s,simpananConnLabel,simpananComment,simpananPlaceholder]],
 				group, esc, cluster
 			))
 			table.insert(created_groups_by_buf[bufnr], group)

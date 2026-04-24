@@ -43,7 +43,12 @@ function M:get_trigger_characters()
 end
 
 function M:get_keyword_pattern()
-	return [[\k\+]]
+	-- Include '|' alongside word characters so that typing just '|'
+	-- counts as a length-1 prefix, satisfying nvim-cmp's default
+	-- completion.keyword_length = 1 gate (which would otherwise hide
+	-- the popup despite our trigger character firing). Plain magic-mode
+	-- regex — \v breaks cmp.utils.pattern's wrapping (\%(...\)).
+	return [[\(\k\|[|]\)\+]]
 end
 
 local function cursor_byte_offset()
@@ -99,13 +104,30 @@ function M:complete(_, callback)
 				return
 			end
 
+			-- When the cursor sits immediately after a '|', cmp's prefix
+			-- (extracted via get_keyword_pattern) is "|". Connection-label
+			-- items returned by the backend are bare names like "pg0".
+			-- Their labels would NOT match the "|" prefix under cmp's
+			-- fuzzy filter, so the popup would be empty. Prepend '|' to
+			-- the label and insertText so the match succeeds and the
+			-- accepted insertion replaces the user's typed '|' with the
+			-- full '|<label>'.
+			local before_line = vim.api.nvim_get_current_line():sub(1, vim.api.nvim_win_get_cursor(0)[2])
+			local at_pipe = before_line:sub(-1) == "|"
+
 			local items = {}
 			for _, s in ipairs(decoded) do
 				local kind_name = kind_map[s.kind] or "Text"
+				local label = s.text
+				local insert = s.text
+				if at_pipe and s.kind == "connection_label" then
+					label = "|" .. s.text
+					insert = "|" .. s.text
+				end
 				table.insert(items, {
-					label = s.text,
+					label = label,
 					kind = cmp_types.CompletionItemKind[kind_name],
-					insertText = s.text,
+					insertText = insert,
 				})
 			end
 			callback({ items = items, isIncomplete = false })

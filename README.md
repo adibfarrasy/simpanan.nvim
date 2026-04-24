@@ -63,9 +63,13 @@ once and restart Neovim so the Go remote-plugin manifest is picked up.
 
 ## Getting Started
 1. Register your connections with `<leader>sic` → press `a` in the popup → type
-   `label>uri` (e.g. `pg0>postgres://user:pass@localhost:5432/app`). Delete
+   `label>uri`, replacing user/pass/host/db with values that point at YOUR
+   database (the placeholders `user:pass@host/db` won't work). Delete
    with `d`. (The popup's add form takes the bare `label>uri` form; the
-   leading `|` is only used in the editor buffer itself.)
+   leading `|` is only used in the editor buffer itself.) See
+   [`examples/`](./examples/) for a `docker-compose.yaml` that spins up
+   four ready-to-use containers and the exact URIs to register against
+   them.
 2. Open any `.simp` file (or just any buffer), write a query prefixed with
    `|label>` (e.g. `|pg0> SELECT * FROM users`), visually select it, and
    press `<leader>sie`.

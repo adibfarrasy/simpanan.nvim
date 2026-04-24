@@ -53,3 +53,4 @@ simpanan/rplugin.vim
 !specs/**
 
 .claude/
+simp_debug.lua

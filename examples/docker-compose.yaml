@@ -1,0 +1,94 @@
+# docker-compose.yaml — example backends for simpanan.
+#
+# Spins up Postgres, MySQL, MongoDB, and Redis on localhost ports
+# and seeds each one with the schema + data the .simp examples in
+# this directory expect. Bring everything up with:
+#
+#   docker compose -f examples/docker-compose.yaml up -d
+#
+# Then register the matching connections in simpanan (via the
+# Connections popup, or :SimpananAddConnection from Lua):
+#
+#   |pg0>postgres://simp:simp@localhost:5432/simp
+#   |my0>mysql://simp:simp@localhost:3306/simp
+#   |mongo1>mongodb://localhost:27017/simp
+#   |cache>redis://localhost:6379
+#
+# The label on the LEFT side of `>` is what you'll type in `.simp`
+# files; the URI on the right is what these containers expose.
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: simpanan-postgres
+    environment:
+      POSTGRES_USER: simp
+      POSTGRES_PASSWORD: simp
+      POSTGRES_DB: simp
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./seed/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simp -d simp"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    container_name: simpanan-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: simp
+      MYSQL_DATABASE: simp
+      MYSQL_USER: simp
+      MYSQL_PASSWORD: simp
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./seed/mysql:/docker-entrypoint-initdb.d:ro
+    command:
+      - --default-authentication-plugin=caching_sha2_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-usimp", "-psimp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    container_name: simpanan-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./seed/mongo:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: simpanan-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # One-shot seeder that runs `redis-cli` against the redis container
+  # to load the keys the examples reference. Exits 0 once data is set.
+  redis-seed:
+    image: redis:7-alpine
+    container_name: simpanan-redis-seed
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./seed/redis:/seed:ro
+    entrypoint: ["sh", "/seed/seed.sh"]

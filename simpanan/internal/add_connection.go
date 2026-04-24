@@ -71,7 +71,7 @@ func AddConnection(label, uri string) error {
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(conns)
+	data, err := json.MarshalIndent(conns, "", "  ")
 	if err != nil {
 		return err
 	}

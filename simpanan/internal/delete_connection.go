@@ -52,7 +52,7 @@ func DeleteConnection(label string) error {
 	}
 
 	filePath := filepath.Join(homeDir, ".local/share/nvim/simpanan_connections.json")
-	data, err := json.Marshal(newPairs)
+	data, err := json.MarshalIndent(newPairs, "", "  ")
 	if err != nil {
 		return err
 	}
